@@ -12,7 +12,7 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: 下载 XcodeGen（不走 brew，避免 brew 抽风）
+      - name: 下载 XcodeGen（不走 brew）
         run: |
           set -e
           curl -L -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.42.0/xcodegen.zip
@@ -22,29 +22,33 @@ jobs:
       - name: 生成 Xcode 工程
         run: "$XG_BIN generate"
 
-      - name: 编译（未签名 archive）
+      - name: 编译（build，产出真正的 .app）
         run: |
+          set -e
           xcodebuild \
             -project YuyuanBridge.xcodeproj \
             -scheme YuyuanBridge \
             -configuration Release \
             -sdk iphoneos \
-            -archivePath build/YuyuanBridge.xcarchive \
-            archive \
+            -derivedDataPath DerivedData \
+            build \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_ENTITLEMENTS="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-      - name: 打包成未签名 .ipa
+      - name: 找到 .app 并打包成未签名 .ipa
         run: |
-          APP_DIR="build/YuyuanBridge.xcarchive/Products/Applications"
-          cd "$APP_DIR"
-          mkdir -p Payload
-          mv YuyuanBridge.app Payload/
-          zip -qr YuyuanBridge-unsigned.ipa Payload
-          cd - >/dev/null
+          set -e
+          APP_PATH=$(find DerivedData -name "YuyuanBridge.app" -type d | head -n 1)
+          echo "找到 App：$APP_PATH"
+          if [ -z "$APP_PATH" ]; then echo "❌ 没找到 .app，编译其实没成功"; exit 1; fi
+          echo "App 大小："; du -sh "$APP_PATH"
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP_PATH" Payload/
           mkdir -p out
-          mv "$APP_DIR/YuyuanBridge-unsigned.ipa" out/
+          zip -qr out/YuyuanBridge-unsigned.ipa Payload
           echo "打包完成："; ls -lh out
 
       - name: 上传 .ipa
