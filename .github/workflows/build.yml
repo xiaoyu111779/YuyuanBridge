@@ -1,0 +1,50 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 编译（未签名 archive）
+        run: |
+          xcodebuild \
+            -project YuyuanBridge.xcodeproj \
+            -scheme YuyuanBridge \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath build/YuyuanBridge.xcarchive \
+            archive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: 打包成未签名 .ipa
+        run: |
+          APP_DIR="build/YuyuanBridge.xcarchive/Products/Applications"
+          cd "$APP_DIR"
+          mkdir -p Payload
+          mv YuyuanBridge.app Payload/
+          zip -qr YuyuanBridge-unsigned.ipa Payload
+          cd - >/dev/null
+          mkdir -p out
+          mv "$APP_DIR/YuyuanBridge-unsigned.ipa" out/
+          echo "打包完成："; ls -lh out
+
+      - name: 上传 .ipa（在 Actions 运行结果页下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: YuyuanBridge-unsigned-ipa
+          path: out/YuyuanBridge-unsigned.ipa
