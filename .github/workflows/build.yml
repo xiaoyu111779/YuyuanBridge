@@ -12,11 +12,15 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: 安装 XcodeGen
-        run: brew install xcodegen
+      - name: 下载 XcodeGen（不走 brew，避免 brew 抽风）
+        run: |
+          set -e
+          curl -L -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.42.0/xcodegen.zip
+          unzip -q xcodegen.zip -d xcodegen_dl
+          echo "XG_BIN=$(pwd)/xcodegen_dl/xcodegen/bin/xcodegen" >> $GITHUB_ENV
 
       - name: 生成 Xcode 工程
-        run: xcodegen generate
+        run: "$XG_BIN generate"
 
       - name: 编译（未签名 archive）
         run: |
@@ -43,7 +47,7 @@ jobs:
           mv "$APP_DIR/YuyuanBridge-unsigned.ipa" out/
           echo "打包完成："; ls -lh out
 
-      - name: 上传 .ipa（在 Actions 运行结果页下载）
+      - name: 上传 .ipa
         uses: actions/upload-artifact@v4
         with:
           name: YuyuanBridge-unsigned-ipa
