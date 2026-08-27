@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>芋圆机助手</string>
+	<key>CFBundleName</key>
+	<string>YuyuanBridge</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>UILaunchScreen</key>
+	<dict/>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
+	<!-- 关键：注册 yuyuanji:// 这个自定义链接，芋圆机网页靠它把事件甩进来 -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.yuyuan.bridge</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>yuyuanji</string>
+			</array>
+		</dict>
+	</array>
+	<!-- 权限说明：首次调用会弹窗给用户点"同意"，这几句是弹窗里的说明文案 -->
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>用于把角色发起的提醒写进你的"提醒事项"。</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>用于把角色发起的提醒写进你的"提醒事项"。</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>用于把角色发起的日程写进你的"日历"。</string>
+</dict>
+</plist>
