@@ -22,13 +22,6 @@ jobs:
       - name: 生成 Xcode 工程
         run: "$XG_BIN generate"
 
-      - name: 诊断-看工程吃到哪些源码
-        run: |
-          echo "=== Sources 目录内容 ==="
-          ls -la Sources || echo "没有 Sources 目录！"
-          echo "=== 工程里引用的 swift 文件 ==="
-          grep -o '[A-Za-z]*\.swift' YuyuanBridge.xcodeproj/project.pbxproj | sort -u || echo "工程里一个 swift 都没有"
-
       - name: 编译（build，产出真正的 .app）
         run: |
           set -e
@@ -45,19 +38,25 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-      - name: 找到 .app 并打包成未签名 .ipa
+      - name: 打包成未签名 .ipa（规整结构）
         run: |
           set -e
           APP_PATH=$(find DerivedData -name "YuyuanBridge.app" -type d | head -n 1)
           echo "找到 App：$APP_PATH"
           if [ -z "$APP_PATH" ]; then echo "❌ 没找到 .app"; exit 1; fi
-          echo "App 大小："; du -sh "$APP_PATH"
-          echo "App 里的文件："; ls -la "$APP_PATH"
-          rm -rf Payload && mkdir Payload
-          cp -R "$APP_PATH" Payload/
+          rm -rf staging out
+          mkdir -p staging/Payload
+          cp -R "$APP_PATH" staging/Payload/
           mkdir -p out
-          zip -qr out/YuyuanBridge-unsigned.ipa Payload
-          echo "打包完成："; ls -lh out
+          cd staging
+          # 用 python 打 zip，结构更规整，全能签更认
+          python3 -c "import shutil; shutil.make_archive('../out/YuyuanBridge-unsigned', 'zip', '.')"
+          cd ..
+          mv out/YuyuanBridge-unsigned.zip out/YuyuanBridge-unsigned.ipa
+          echo "=== ipa 内部结构 ==="
+          unzip -l out/YuyuanBridge-unsigned.ipa
+          echo "=== 大小 ==="
+          ls -lh out
 
       - name: 上传 .ipa
         uses: actions/upload-artifact@v4
