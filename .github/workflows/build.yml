@@ -38,24 +38,27 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-      - name: 打包成未签名 .ipa（规整结构）
+      - name: 打包成未签名 .ipa（带占位 ad-hoc 签名）
         run: |
           set -e
           APP_PATH=$(find DerivedData -name "YuyuanBridge.app" -type d | head -n 1)
           echo "找到 App：$APP_PATH"
           if [ -z "$APP_PATH" ]; then echo "❌ 没找到 .app"; exit 1; fi
+          # 关键：塞一个占位 ad-hoc 签名(-)，让全能签能识别成主包(它之后会用你的证书重签)
+          codesign --force --sign - --timestamp=none "$APP_PATH" || true
+          echo "=== 确认签名信息 ==="
+          ls -la "$APP_PATH" | grep -i codesign || echo "(没有 _CodeSignature 目录，继续看下面)"
+          codesign -dv "$APP_PATH" 2>&1 || true
           rm -rf staging out
           mkdir -p staging/Payload
           cp -R "$APP_PATH" staging/Payload/
           mkdir -p out
           cd staging
-          # 用 python 打 zip，结构更规整，全能签更认
           python3 -c "import shutil; shutil.make_archive('../out/YuyuanBridge-unsigned', 'zip', '.')"
           cd ..
           mv out/YuyuanBridge-unsigned.zip out/YuyuanBridge-unsigned.ipa
           echo "=== ipa 内部结构 ==="
           unzip -l out/YuyuanBridge-unsigned.ipa
-          echo "=== 大小 ==="
           ls -lh out
 
       - name: 上传 .ipa
