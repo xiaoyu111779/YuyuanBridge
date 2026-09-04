@@ -1,5 +1,6 @@
 import SwiftUI
 import UserNotifications
+import AppIntents
 
 // App 入口。它做两件事：
 // 1) 展示一个简单的状态/授权界面（首次用来点"同意提醒/通知权限"、看日志）
