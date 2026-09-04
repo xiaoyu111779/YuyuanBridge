@@ -7,10 +7,18 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
+
+      - name: 选最新稳定版 Xcode(AlarmKit 需要 Xcode 26 / iOS 26 SDK)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: 打印 Xcode 版本
+        run: xcodebuild -version
 
       - name: 下载 XcodeGen（不走 brew）
         run: |
