@@ -59,7 +59,7 @@ struct ContentView: View {
                             HStack { Text(n.name); Spacer(); Text("已同步").font(.footnote).foregroundColor(.secondary) }
                         }
                         Button("测试：让 \(names.first!.name) 现在发条消息") {
-                            Brain.shared.generate(charName: names.first!.name, trigger: "这是一次手动测试,\(Brain.shared.snapshot(forName: names.first!.name)?.userName ?? "对方")想看看你会说什么") { _, _ in }
+                            Brain.shared.generate(charName: names.first!.name, trigger: "你这会儿突然想起 \(Brain.shared.snapshot(forName: names.first!.name)?.userName ?? "ta"),想给 ta 发几句") { _, _ in }
                         }
                     }
                     Text("Siri 说法：「Siri，芋圆机，让 角色名 给我发消息」。想更短：在快捷指令 App 里新建 → 搜「芋圆机助手」→ 选「让角色给我发消息」→ 选角色 → 把指令命名成角色名，之后直接「Siri，角色名」；也可绑到「轻点背面」或操作按钮。")
