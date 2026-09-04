@@ -181,7 +181,7 @@ final class LiveLink: ObservableObject {
         let full = dev.batteryState == .full
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         let ts = Int(Date().timeIntervalSince1970)
-        return "{\"ok\":true,\"battery\":\(pct),\"approx\":true,\"charging\":\(charging),\"full\":\(full),\"lowPower\":\(lowPower),\"ts\":\(ts),\"app\":\"YuyuanBridge\"}"
+        return "{\"ok\":true,\"battery\":\(pct),\"approx\":true,\"charging\":\(charging),\"full\":\(full),\"lowPower\":\(lowPower)" + HealthBridge.shared.statusFragment() + ",\"ts\":\(ts),\"app\":\"YuyuanBridge\"}"
     }
     private static let fmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
 }
