@@ -62,6 +62,7 @@ final class Brain {
         UserDefaults.standard.set(cardKey, forKey: "brain.lastCard")
         persist()
         AppStore.shared.append("已同步快照:\(charName)(\(recent.count) 条对话)")
+        YuyuanShortcuts.updateAppShortcutParameters()   // 关键:角色名是动态参数,不刷新 Siri 不认识
         return true
     }
     var charNames: [(cardKey: String, name: String)] { snapshots.values.sorted { $0.updatedAt > $1.updatedAt }.map { ($0.cardKey, $0.charName) } }
@@ -97,15 +98,14 @@ final class Brain {
 \(snap.persona.isEmpty ? "(按最近对话的口吻来)" : snap.persona)
 
 \(snap.story.isEmpty ? "" : "【主线最新剧情(你们俩的故事走到哪了,旧→新;以此为准,微信消息要接得上这里的进展)】\n\(snap.story)\n")\(snap.storyTime.isEmpty ? "" : "【剧情时间】\(snap.storyTime)\n")
-【场景】\(trigger)。\(snap.userName) 现在不在酒馆里,你要主动给 ta 发 1~3 条【很短】的微信消息(每条 1~2 句,像真人发微信,不要一大段,不要旁白,不要动作描写,不要引号包裹,不要出现你自己的名字前缀)。内容要贴合上面主线剧情的最新进展和你们的关系,不要凭空另起一段。
-【输出格式】只输出一个 JSON 数组,每个元素是一条消息的文本,例如 ["起了吗","今天记得吃早饭"]。不要输出别的。
+\(snap.recent.isEmpty ? "" : "【你们最近的微信聊天记录(仅供参考口吻和话题,旧→新)】\n" + snap.recent.suffix(20).map { ((\$0.role == "me" || \$0.role == "user") ? snap.userName : snap.charName) + ":" + \$0.text }.joined(separator: "\n") + "\n")
+【场景】\(trigger)。\(snap.userName) 现在不在酒馆里,你要【主动新发】1~3 条【很短】的微信消息(每条 1~2 句,像真人发微信,不要一大段,不要旁白,不要动作描写,不要出现你自己的名字前缀)。内容要贴合上面主线剧情的最新进展和你们的关系;【绝对不要】重复或改写上面聊天记录里已经说过的话,要说新的。
+【输出格式·严格】每条消息单独一行,直接写消息正文;不要编号、不要引号、不要方括号、不要 JSON、不要 markdown、不要任何说明或标题。例如:
+起了吗
+今天记得吃早饭
 """
         var messages: [[String: String]] = [["role": "system", "content": sys]]
-        for m in snap.recent.suffix(20) {
-            let role = (m.role == "me" || m.role == "user") ? "user" : "assistant"
-            messages.append(["role": role, "content": m.text])
-        }
-        messages.append(["role": "user", "content": "(\(trigger)。请按格式输出。)"])
+        messages.append(["role": "user", "content": "\(trigger)。现在直接发消息(每条一行)。"])
         let body: [String: Any] = ["model": snap.apiModel, "messages": messages, "temperature": 0.9, "max_tokens": 300]
         var base = snap.apiUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         while base.hasSuffix("/") { base.removeLast() }
@@ -121,7 +121,7 @@ final class Brain {
             guard let data = data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { DispatchQueue.main.async { done(false, ["API 没返回 JSON"]) }; return }
             let content = (((obj["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String) ?? ""
             let lines = Self.parseLines(content)
-            guard !lines.isEmpty else { AppStore.shared.append("离线小脑:模型没说出话来"); DispatchQueue.main.async { done(false, ["模型没返回内容"]) }; return }
+            guard !lines.isEmpty else { AppStore.shared.append("离线小脑:模型没说出话来(原文:" + String(content.prefix(60)) + ")"); DispatchQueue.main.async { done(false, ["模型没返回内容"]) }; return }
             let now = Date().timeIntervalSince1970
             for (i, t) in lines.enumerated() {
                 self.outbox.append(Outgoing(id: UUID().uuidString, cardKey: snap.cardKey, charName: snap.charName, text: t, ts: now + Double(i), delivered: false))
@@ -133,16 +133,34 @@ final class Brain {
         }.resume()
     }
     private static func parseLines(_ s: String) -> [String] {
-        var t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let r1 = t.range(of: "["), let r2 = t.range(of: "]", options: .backwards), r1.lowerBound < r2.upperBound {
-            let js = String(t[r1.lowerBound..<r2.upperBound])
-            if let d = js.data(using: .utf8), let arr = try? JSONSerialization.jsonObject(with: d) as? [Any] {
-                let out = arr.compactMap { $0 as? String }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                if !out.isEmpty { return Array(out.prefix(3)) }
-            }
+        var t = s.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
+        // 万一还是给了 JSON 数组:抠出所有引号里的字符串
+        if let r1 = t.firstIndex(of: "["), let r2 = t.lastIndex(of: "]"), r1 < r2 {
+            let inner = String(t[t.index(after: r1)..<r2])
+            let quoted = Self.regexAll(inner, pattern: "\"((?:[^\"\\\\]|\\\\.)*)\"")
+            if quoted.count >= 1 { t = quoted.joined(separator: "\n") }
         }
-        t = t.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
-        return t.split(whereSeparator: { $0 == "\n" }).map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }.prefix(3).map { $0 }
+        let junk = ["**", "constraints", "output", "format", "json", "assistant", "system", "user:", "```"]
+        var out: [String] = []
+        for raw in t.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+            var l = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+            // 去编号/项目符号/引号/括号
+            l = l.replacingOccurrences(of: "^([0-9]+[\\.、)]|[-*•]|\\[|\\])\\s*", with: "", options: .regularExpression)
+            l = l.trimmingCharacters(in: CharacterSet(charactersIn: "\"“”'‘’「」[]]、,，"))
+            l = l.trimmingCharacters(in: .whitespacesAndNewlines)
+            if l.isEmpty || l.count < 2 { continue }
+            let low = l.lowercased()
+            if junk.contains(where: { low.contains($0) }) { continue }
+            if l.range(of: "^[\\p{Han}\\p{L}\\p{N}]", options: .regularExpression) == nil { continue }  // 不是以文字开头(纯符号)→丢
+            out.append(l)
+            if out.count >= 3 { break }
+        }
+        return out
+    }
+    private static func regexAll(_ s: String, pattern: String) -> [String] {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let ns = s as NSString
+        return re.matches(in: s, range: NSRange(location: 0, length: ns.length)).compactMap { m in m.numberOfRanges > 1 ? ns.substring(with: m.range(at: 1)) : nil }
     }
     private func notify(title: String, body: String, delay: Double) {
         let c = UNMutableNotificationContent(); c.title = title; c.body = body; c.sound = .default
