@@ -50,6 +50,22 @@ struct ContentView: View {
                     }
                 }
 
+                Section("离线小脑 · Siri（酒馆关着也能让 ta 发消息）") {
+                    let names = Brain.shared.charNames
+                    if names.isEmpty {
+                        Text("还没同步快照。去芋圆机：设置→手机联动 开总开关，和 ta 聊一句，快照会自动同步过来。").font(.footnote).foregroundColor(.secondary)
+                    } else {
+                        ForEach(names, id: \.cardKey) { n in
+                            HStack { Text(n.name); Spacer(); Text("已同步").font(.footnote).foregroundColor(.secondary) }
+                        }
+                        Button("测试：让 \(names.first!.name) 现在发条消息") {
+                            Brain.shared.generate(charName: names.first!.name, trigger: "这是一次手动测试,\(Brain.shared.snapshot(forName: names.first!.name)?.userName ?? "对方")想看看你会说什么") { _, _ in }
+                        }
+                    }
+                    Text("Siri 说法：「Siri，芋圆机，让 角色名 给我发消息」。想更短：在快捷指令 App 里新建 → 搜「芋圆机助手」→ 选「让角色给我发消息」→ 选角色 → 把指令命名成角色名，之后直接「Siri，角色名」；也可绑到「轻点背面」或操作按钮。")
+                        .font(.footnote).foregroundColor(.secondary)
+                }
+
                 Section("自测（不依赖芋圆机，先验证 App 本身能用）") {
                     Button("① 立刻弹一条测试通知") {
                         ActionHandler.shared.handle(url: URL(string:
