@@ -1,6 +1,7 @@
 import Foundation
 import UserNotifications
 import Security
+import AppIntents
 
 // "离线小脑":酒馆关着时也能让角色说话。
 // 芋圆机开着时把【API 配置 + 角色人设 + 最近聊天】作为快照同步进来(POST /sync);
@@ -93,12 +94,22 @@ final class Brain {
         guard let snap = snapshot(forName: charName ?? "") else { done(false, ["还没同步过角色快照:先在芋圆机里开「手机联动」并聊一句"]); return }
         let key = Keychain.get("apikey." + snap.cardKey) ?? ""
         guard !snap.apiUrl.isEmpty, !key.isEmpty, !snap.apiModel.isEmpty else { done(false, ["快照里没有可用的 API 配置(芋圆机里先配好副 API)"]); return }
+        var recentBlock = ""
+        if !snap.recent.isEmpty {
+            let lines = snap.recent.suffix(20).map { m -> String in
+                let who = (m.role == "me" || m.role == "user") ? snap.userName : snap.charName
+                return who + ":" + m.text
+            }
+            recentBlock = "【你们最近的微信聊天记录(仅供参考口吻和话题,旧→新)】\n" + lines.joined(separator: "\n") + "\n"
+        }
+        let storyBlock = snap.story.isEmpty ? "" : "【主线最新剧情(你们俩的故事走到哪了,旧→新;以此为准,微信消息要接得上这里的进展)】\n\(snap.story)\n"
+        let timeBlock = snap.storyTime.isEmpty ? "" : "【剧情时间】\(snap.storyTime)\n"
         let sys = """
 你现在是「\(snap.charName)」,正在用微信和「\(snap.userName)」聊天。以下是你的线上人设与说话方式:
 \(snap.persona.isEmpty ? "(按最近对话的口吻来)" : snap.persona)
 
-\(snap.story.isEmpty ? "" : "【主线最新剧情(你们俩的故事走到哪了,旧→新;以此为准,微信消息要接得上这里的进展)】\n\(snap.story)\n")\(snap.storyTime.isEmpty ? "" : "【剧情时间】\(snap.storyTime)\n")
-\(snap.recent.isEmpty ? "" : "【你们最近的微信聊天记录(仅供参考口吻和话题,旧→新)】\n" + snap.recent.suffix(20).map { ((\$0.role == "me" || \$0.role == "user") ? snap.userName : snap.charName) + ":" + \$0.text }.joined(separator: "\n") + "\n")
+\(storyBlock)\(timeBlock)
+\(recentBlock)
 【场景】\(trigger)。\(snap.userName) 现在不在酒馆里,你要【主动新发】1~3 条【很短】的微信消息(每条 1~2 句,像真人发微信,不要一大段,不要旁白,不要动作描写,不要出现你自己的名字前缀)。内容要贴合上面主线剧情的最新进展和你们的关系;【绝对不要】重复或改写上面聊天记录里已经说过的话,要说新的。
 【输出格式·严格】每条消息单独一行,直接写消息正文;不要编号、不要引号、不要方括号、不要 JSON、不要 markdown、不要任何说明或标题。例如:
 起了吗
