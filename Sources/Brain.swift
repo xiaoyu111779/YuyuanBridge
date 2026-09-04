@@ -84,7 +84,7 @@ final class Brain {
     }
     func ack(ids: [String]) {
         let set = Set(ids)
-        outbox = outbox.map { var o = $0; if set.contains(o.id) { o.delivered = true }; return o }
+        outbox = outbox.map { (x: Outgoing) -> Outgoing in var o = x; if set.contains(o.id) { o.delivered = true }; return o }
         outbox = outbox.filter { !$0.delivered || Date().timeIntervalSince1970 - $0.ts < 7 * 86400 }
         persist()
     }
@@ -96,7 +96,8 @@ final class Brain {
         let key = Keychain.get("apikey." + snap.cardKey) ?? ""
         guard !snap.apiUrl.isEmpty, !key.isEmpty, !snap.apiModel.isEmpty else { done(false, ["快照里没有可用的 API 配置(芋圆机里先配好副 API)"]); return }
         // 自己最近发过的离线消息(发件箱,24h 内,同一张卡)也接进对话——不然下次 Siri 看不到上一条说了啥
-        let mineRecent = outbox.filter { $0.cardKey == snap.cardKey && Date().timeIntervalSince1970 - $0.ts < 86400 }.suffix(10)
+        let nowTs = Date().timeIntervalSince1970
+        let mineRecent = outbox.filter { (o: Outgoing) -> Bool in o.cardKey == snap.cardKey && (nowTs - o.ts) < 86400 }.suffix(10)
         var convo: [Snapshot.Msg] = snap.recent
         for o in mineRecent { convo.append(Snapshot.Msg(role: "npc", text: o.text, time: o.ts * 1000)) }
         var recentBlock = ""
@@ -105,11 +106,14 @@ final class Brain {
                 let who = (m.role == "me" || m.role == "user") ? snap.userName : snap.charName
                 return who + ":" + m.text
             }
-            recentBlock = "【你们最近的微信聊天记录(旧→新,含你刚才在 ta 不在时发过的)】\n" + lines.joined(separator: "\n") + "\n"
+            recentBlock = ["【你们最近的微信聊天记录(旧→新,含你刚才在 ta 不在时发过的)】", lines.joined(separator: "\n"), ""].joined(separator: "\n")
         }
-        let storyBlock = snap.story.isEmpty ? "" : "【主线最新剧情(你们俩的故事走到哪了,旧→新;以此为准,微信消息要接得上这里的进展)】\n\(snap.story)\n"
-        let timeBlock = snap.storyTime.isEmpty ? "" : "【剧情时间】\(snap.storyTime)\n"
-        let loreBlock = snap.lore.isEmpty ? "" : "【剧情设定】\(snap.lore)\n"
+        var storyBlock = ""
+        if !snap.story.isEmpty { storyBlock = "【主线最新剧情(你们俩的故事走到哪了,旧→新;以此为准,微信消息要接得上这里的进展)】\n" + snap.story + "\n" }
+        var timeBlock = ""
+        if !snap.storyTime.isEmpty { timeBlock = "【剧情时间】" + snap.storyTime + "\n" }
+        var loreBlock = ""
+        if !snap.lore.isEmpty { loreBlock = "【剧情设定】" + snap.lore + "\n" }
         let offlineRule = """
 【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
 【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要别的字段、不要 markdown、不要解释。
@@ -120,7 +124,7 @@ final class Brain {
             let base = snap.sysPrompt
                 .replacingOccurrences(of: "{{user}}", with: snap.userName)
                 .replacingOccurrences(of: "{{char}}", with: snap.charName)
-            sys = base + "\n\n" + loreBlock + timeBlock + recentBlock + offlineRule
+            sys = [base, "", loreBlock, timeBlock, recentBlock, offlineRule].joined(separator: "\n")
         } else {
             sys = """
 你现在是「\(snap.charName)」,正在用微信和「\(snap.userName)」聊天。以下是你的线上人设与说话方式:
@@ -167,7 +171,8 @@ final class Brain {
             let js = String(t[o1...o2])
             if let d = js.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
                let arr = obj["texts"] as? [Any] {
-                let out = arr.compactMap { $0 as? String }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { $0.count >= 1 && $0.count <= 200 }
+                var out: [String] = []
+                for a in arr { if let str = a as? String { let v = str.trimmingCharacters(in: .whitespacesAndNewlines); if v.count >= 1 && v.count <= 200 { out.append(v) } } }
                 if !out.isEmpty { return Array(out.prefix(3)) }
             }
         }
@@ -178,14 +183,17 @@ final class Brain {
             if quoted.count >= 1 { t = quoted.joined(separator: "\n") }
         }
         // 优先:只认行首 >> 的行(思路/方案/分析没标记→天然丢弃)
-        let marked = t.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map { String($0).trimmingCharacters(in: .whitespaces) }
-            .filter { $0.hasPrefix(">>") || $0.hasPrefix("》》") || $0.hasPrefix("＞＞") }
-            .map { String($0.dropFirst(2)).trimmingCharacters(in: CharacterSet(charactersIn: " \"“”「」")) }
-            .filter { $0.count >= 2 && $0.count <= 120 }
+        var marked: [String] = []
+        for sub in t.split(whereSeparator: { (c: Character) -> Bool in c == "\n" || c == "\r" }) {
+            let line = String(sub).trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix(">>") || line.hasPrefix("》》") || line.hasPrefix("＞＞") else { continue }
+            let body = String(line.dropFirst(2)).trimmingCharacters(in: CharacterSet(charactersIn: " \"“”「」"))
+            if body.count >= 2 && body.count <= 120 { marked.append(body) }
+        }
         if !marked.isEmpty { return Array(marked.prefix(3)) }
         let junk = ["**", "constraints", "output", "format", "json", "assistant", "system", "user:", "```", "玩家", "用户", "模型", "系统", "ai ", "助手", "测试", "剧情", "正文", "结尾", "续写", "旁白", "回话", "角色扮演", "第三人称", "思路", "方案", "选项", "分析", "步骤", "策略", "备选", "候选", "版本", "总结", "综上", "如下", "以下", "首先", "其次", "最后", "消息一", "消息二", "消息三", "第一条", "第二条", "第三条"]
         var out: [String] = []
-        for raw in t.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
+        for raw in t.split(whereSeparator: { (c: Character) -> Bool in c == "\n" || c == "\r" }) {
             var l = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
             // 去编号/项目符号/引号/括号
             l = l.replacingOccurrences(of: "^([0-9]+[\\.、)]|[-*•]|\\[|\\])\\s*", with: "", options: .regularExpression)
