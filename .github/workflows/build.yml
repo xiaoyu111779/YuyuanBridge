@@ -44,6 +44,18 @@ jobs:
           APP_PATH=$(find DerivedData -name "YuyuanBridge.app" -type d | head -n 1)
           echo "找到 App：$APP_PATH"
           if [ -z "$APP_PATH" ]; then echo "❌ 没找到 .app"; exit 1; fi
+          # ▼ 自检:打印打出来的 Info.plist,并确认关键键都在(缺任一就直接失败,别打出坏 ipa)
+          echo "=== 打包前 Info.plist 自检 ==="
+          plutil -p "$APP_PATH/Info.plist"
+          for k in CFBundleExecutable CFBundleIdentifier CFBundleName CFBundleVersion CFBundleShortVersionString; do
+            v=$(/usr/libexec/PlistBuddy -c "Print :$k" "$APP_PATH/Info.plist" 2>/dev/null || true)
+            if [ -z "$v" ]; then echo "❌ Info.plist 缺 $k(签名工具会解析失败)"; exit 1; fi
+            echo "✓ $k = $v"
+          done
+          EXE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
+          if [ ! -f "$APP_PATH/$EXE" ]; then echo "❌ 可执行文件 $EXE 不存在于 .app 里"; exit 1; fi
+          echo "✓ 可执行文件存在: $EXE"
+          # ▲
           codesign --force --sign - --timestamp=none "$APP_PATH" || true
           rm -rf staging out
           mkdir -p staging/Payload out
