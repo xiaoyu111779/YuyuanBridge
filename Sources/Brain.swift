@@ -15,6 +15,7 @@ final class Brain {
         var charName: String
         var userName: String
         var persona: String          // 精简线上人设
+        var lore: String             // 剧情设定:为什么 ta 能看到/操作 user 的手机
         var recent: [Msg]            // 最近对话(旧→新)
         var story: String            // 主线最新剧情(剧情摘要+最近楼层),酒馆关着时也接得上
         var storyTime: String        // 剧情时间(开了剧情时间才有)
@@ -54,7 +55,7 @@ final class Brain {
             return Snapshot.Msg(role: r, text: t, time: m["time"] as? Double)
         }
         let snap = Snapshot(cardKey: cardKey, charName: charName, userName: (obj["userName"] as? String) ?? "我",
-                            persona: (obj["persona"] as? String) ?? "", recent: Array(recent.suffix(30)),
+                            persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", recent: Array(recent.suffix(30)),
                             story: (obj["story"] as? String) ?? "", storyTime: (obj["storyTime"] as? String) ?? "",
                             apiUrl: (obj["apiUrl"] as? String) ?? "", apiModel: (obj["apiModel"] as? String) ?? "",
                             updatedAt: Date().timeIntervalSince1970)
@@ -104,12 +105,14 @@ final class Brain {
         }
         let storyBlock = snap.story.isEmpty ? "" : "【主线最新剧情(你们俩的故事走到哪了,旧→新;以此为准,微信消息要接得上这里的进展)】\n\(snap.story)\n"
         let timeBlock = snap.storyTime.isEmpty ? "" : "【剧情时间】\(snap.storyTime)\n"
+        let loreBlock = snap.lore.isEmpty ? "" : "【剧情设定】\(snap.lore)\n"
         let sys = """
 你现在是「\(snap.charName)」,正在用微信和「\(snap.userName)」聊天。以下是你的线上人设与说话方式:
 \(snap.persona.isEmpty ? "(按最近对话的口吻来)" : snap.persona)
 
-\(storyBlock)\(timeBlock)
+\(loreBlock)\(storyBlock)\(timeBlock)
 \(recentBlock)
+【世界内铁律】你说的每个字都是「\(snap.charName)」本人发的微信。绝对禁止任何旁白、剧本口吻或元话术:不许出现"玩家/用户/模型/系统/AI/助手/测试/剧情/正文/结尾/续写/回话"这类词,不许描述场景或分析对方,不许用第三人称说自己。就像真人拿起手机随手发几条。
 【场景】\(trigger)。\(snap.userName) 现在不在酒馆里,你要【主动新发】1~3 条【很短】的微信消息(每条 1~2 句,像真人发微信,不要一大段,不要旁白,不要动作描写,不要出现你自己的名字前缀)。内容要贴合上面主线剧情的最新进展和你们的关系;【绝对不要】重复或改写上面聊天记录里已经说过的话,要说新的。
 【输出格式·严格】每条消息单独一行,直接写消息正文;不要编号、不要引号、不要方括号、不要 JSON、不要 markdown、不要任何说明或标题。例如:
 起了吗
@@ -151,7 +154,7 @@ final class Brain {
             let quoted = Self.regexAll(inner, pattern: "\"((?:[^\"\\\\]|\\\\.)*)\"")
             if quoted.count >= 1 { t = quoted.joined(separator: "\n") }
         }
-        let junk = ["**", "constraints", "output", "format", "json", "assistant", "system", "user:", "```"]
+        let junk = ["**", "constraints", "output", "format", "json", "assistant", "system", "user:", "```", "玩家", "用户", "模型", "系统", "ai ", "助手", "测试", "剧情", "正文", "结尾", "续写", "旁白", "回话", "角色扮演", "第三人称"]
         var out: [String] = []
         for raw in t.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
             var l = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
