@@ -2,6 +2,26 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- ▼ 全能签解析必需的基础键(原文件缺的就是这几个,尤其 CFBundleExecutable) -->
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleSupportedPlatforms</key>
+	<array>
+		<string>iPhoneOS</string>
+	</array>
+	<key>MinimumOSVersion</key>
+	<string>16.0</string>
+	<key>UIDeviceFamily</key>
+	<array>
+		<integer>1</integer>
+		<integer>2</integer>
+	</array>
+	<!-- ▲ -->
+
 	<key>CFBundleDisplayName</key>
 	<string>芋圆机助手</string>
 	<key>CFBundleName</key>
@@ -23,7 +43,11 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
-	<!-- 关键：注册 yuyuanji:// 这个自定义链接，芋圆机网页靠它把事件甩进来 -->
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<!-- 注册 yuyuanji:// 自定义链接,芋圆机网页靠它把事件甩进来 -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -35,7 +59,7 @@
 			</array>
 		</dict>
 	</array>
-	<!-- 权限说明：首次调用会弹窗给用户点"同意"，这几句是弹窗里的说明文案 -->
+	<!-- 权限说明文案 -->
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>用于把角色发起的提醒写进你的"提醒事项"。</string>
 	<key>NSRemindersUsageDescription</key>
