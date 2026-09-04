@@ -57,6 +57,10 @@ final class ActionHandler {
         case "shortcut":
             // 转交给用户自己的快捷指令:title=快捷指令名字,body=传入内容(写备忘录/订闹钟/发消息…都由快捷指令自己定义)
             runShortcut(name: title, input: bodyText.isEmpty ? body : bodyText)
+        case "calendar":
+            // 日历日程(EventKit,静默):title=事项,time=开始;默认 1 小时
+            guard let when = when else { AppStore.shared.append("写日历:没给时间"); return }
+            writeCalendar(title: title.isEmpty ? body : title, notes: bodyText, start: when)
         case "alarm":
             // 真闹钟(iOS 26+ AlarmKit);不支持/失败→回落 提醒事项+到点通知
             guard let when = when else { AppStore.shared.append("定闹钟:没给时间"); return }
@@ -78,6 +82,27 @@ final class ActionHandler {
             } else {
                 fireNow(title: title.isEmpty ? (character ?? "芋圆机") : title, body: body.isEmpty ? title : body)
             }
+        }
+    }
+
+    // MARK: 日历(EventKit)
+    private func writeCalendar(title: String, notes: String, start: Date) {
+        let req: (@escaping (Bool) -> Void) -> Void = { done in
+            if #available(iOS 17.0, *) { self.store.requestFullAccessToEvents { ok, _ in DispatchQueue.main.async { done(ok) } } }
+            else { self.store.requestAccess(to: .event) { ok, _ in DispatchQueue.main.async { done(ok) } } }
+        }
+        req { [weak self] ok in
+            guard let self = self else { return }
+            guard ok else { AppStore.shared.append("写日历失败:没有权限"); return }
+            let ev = EKEvent(eventStore: self.store)
+            ev.title = title.isEmpty ? "(无标题)" : title
+            ev.notes = notes
+            ev.startDate = start
+            ev.endDate = start.addingTimeInterval(3600)
+            ev.calendar = self.store.defaultCalendarForNewEvents
+            ev.addAlarm(EKAlarm(relativeOffset: -15 * 60))
+            do { try self.store.save(ev, span: .thisEvent, commit: true); AppStore.shared.append("已写入日历:\(ev.title ?? "")") }
+            catch { AppStore.shared.append("写日历出错:\(error.localizedDescription)") }
         }
     }
 
