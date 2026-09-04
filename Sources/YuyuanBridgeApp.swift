@@ -58,6 +58,7 @@ final class AppStore: ObservableObject {
     @Published var reminderGranted: Bool = false
     @Published var notifyGranted: Bool = false
     @Published var alarmGranted: Bool = false
+    @Published var healthGranted: Bool = false
 
     func append(_ line: String) {
         DispatchQueue.main.async {
