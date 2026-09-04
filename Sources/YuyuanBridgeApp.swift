@@ -55,6 +55,7 @@ final class AppStore: ObservableObject {
     @Published var log: [String] = []          // 最近的处理日志（新在最前）
     @Published var reminderGranted: Bool = false
     @Published var notifyGranted: Bool = false
+    @Published var alarmGranted: Bool = false
 
     func append(_ line: String) {
         DispatchQueue.main.async {
