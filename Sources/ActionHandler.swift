@@ -57,6 +57,17 @@ final class ActionHandler {
         case "shortcut":
             // 转交给用户自己的快捷指令:title=快捷指令名字,body=传入内容(写备忘录/订闹钟/发消息…都由快捷指令自己定义)
             runShortcut(name: title, input: bodyText.isEmpty ? body : bodyText)
+        case "alarm":
+            // 真闹钟(iOS 26+ AlarmKit);不支持/失败→回落 提醒事项+到点通知
+            guard let when = when else { AppStore.shared.append("定闹钟:没给时间"); return }
+            let t = title.isEmpty ? "闹钟" : title
+            AlarmBridge.schedule(title: t, at: when) { [weak self] ok, msg in
+                AppStore.shared.append(msg)
+                if !ok, let self = self {
+                    self.writeReminder(title: t, notes: bodyText, due: when)
+                    self.scheduleNotification(title: "⏰ " + t, body: bodyText.isEmpty ? t : bodyText, at: when)
+                }
+            }
         case "reminder":
             writeReminder(title: title.isEmpty ? body : title, notes: bodyText, due: when)
             // 顺带排一条到点通知，这样"提醒"也会主动弹（提醒事项本身到点也会提醒）
