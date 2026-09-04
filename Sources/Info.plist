@@ -65,6 +65,8 @@
 		</dict>
 	</array>
 	<!-- 权限说明文案 -->
+	<key>NSAlarmKitUsageDescription</key>
+	<string>用于替角色在你的手机上定真正的闹钟(和系统闹钟一样会响铃)。</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
 	<string>用于把角色发起的提醒写进你的"提醒事项"。</string>
 	<key>NSRemindersUsageDescription</key>
