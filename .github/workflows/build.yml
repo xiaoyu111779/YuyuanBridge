@@ -1,0 +1,75 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 下载 XcodeGen（不走 brew）
+        run: |
+          set -e
+          curl -L -o xcodegen.zip https://github.com/yonaskolb/XcodeGen/releases/download/2.42.0/xcodegen.zip
+          unzip -q xcodegen.zip -d xcodegen_dl
+          echo "XG_BIN=$(pwd)/xcodegen_dl/xcodegen/bin/xcodegen" >> $GITHUB_ENV
+
+      - name: 生成 Xcode 工程
+        run: "$XG_BIN generate"
+
+      - name: 编译（build，产出真正的 .app）
+        run: |
+          set -e
+          xcodebuild \
+            -project YuyuanBridge.xcodeproj \
+            -scheme YuyuanBridge \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath DerivedData \
+            build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+      - name: 打包成未签名 .ipa（系统 zip + ad-hoc 签名）
+        run: |
+          set -e
+          APP_PATH=$(find DerivedData -name "YuyuanBridge.app" -type d | head -n 1)
+          echo "找到 App：$APP_PATH"
+          if [ -z "$APP_PATH" ]; then echo "❌ 没找到 .app"; exit 1; fi
+          # ▼ 自检:打印打出来的 Info.plist,并确认关键键都在(缺任一就直接失败,别打出坏 ipa)
+          echo "=== 打包前 Info.plist 自检 ==="
+          plutil -p "$APP_PATH/Info.plist"
+          for k in CFBundleExecutable CFBundleIdentifier CFBundleName CFBundleVersion CFBundleShortVersionString; do
+            v=$(/usr/libexec/PlistBuddy -c "Print :$k" "$APP_PATH/Info.plist" 2>/dev/null || true)
+            if [ -z "$v" ]; then echo "❌ Info.plist 缺 $k(签名工具会解析失败)"; exit 1; fi
+            echo "✓ $k = $v"
+          done
+          EXE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
+          if [ ! -f "$APP_PATH/$EXE" ]; then echo "❌ 可执行文件 $EXE 不存在于 .app 里"; exit 1; fi
+          echo "✓ 可执行文件存在: $EXE"
+          # ▲
+          codesign --force --sign - --timestamp=none "$APP_PATH" || true
+          rm -rf staging out
+          mkdir -p staging/Payload out
+          cp -R "$APP_PATH" staging/Payload/
+          cd staging
+          # 用 macOS 原生 zip 命令打包（全能签兼容性最好）
+          zip -qry ../out/YuyuanBridge-unsigned.ipa Payload
+          cd ..
+          echo "=== ipa 内部结构 ==="
+          unzip -l out/YuyuanBridge-unsigned.ipa
+          ls -lh out
+
+      - name: 上传 .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: YuyuanBridge-unsigned-ipa
+          path: out/YuyuanBridge-unsigned.ipa
