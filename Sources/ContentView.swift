@@ -43,6 +43,12 @@ struct ContentView: View {
                             Spacer(); Text(store.notifyGranted ? "✅" : "—") }
                     }
                     Button {
+                        HealthBridge.shared.requestAuth { ok, msg in store.healthGranted = ok; store.append(msg) }
+                    } label: {
+                        HStack { Text("请求「健康」权限（步数 / 睡眠）")
+                            Spacer(); Text(store.healthGranted ? "✅" : "—") }
+                    }
+                    Button {
                         AlarmBridge.requestAuth { ok, msg in store.alarmGranted = ok; store.append(msg) }
                     } label: {
                         HStack { Text("请求「闹钟」权限（iOS 26+ 真闹钟）")
