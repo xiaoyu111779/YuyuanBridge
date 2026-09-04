@@ -73,6 +73,10 @@
 			<string>芋圆机</string>
 		</dict>
 	</array>
+	<key>NSHealthShareUsageDescription</key>
+	<string>用于让角色知道你今天走了多少步、昨晚睡了多久,给你更贴身的关心。只读、不上传。</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>本 App 不会写入健康数据。</string>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>用于替角色在你的手机上定真正的闹钟(和系统闹钟一样会响铃)。</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
