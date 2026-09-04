@@ -68,7 +68,7 @@ struct ContentView: View {
                             Brain.shared.generate(charName: names.first!.name, trigger: "你这会儿突然想起 \(Brain.shared.snapshot(forName: names.first!.name)?.userName ?? "ta"),想给 ta 发几句") { _, _ in }
                         }
                     }
-                    Text("Siri 说法：「Siri，芋圆机，让 角色名 给我发消息」。想更短：在快捷指令 App 里新建 → 搜「芋圆机助手」→ 选「让角色给我发消息」→ 选角色 → 把指令命名成角色名，之后直接「Siri，角色名」；也可绑到「轻点背面」或操作按钮。")
+                    Text("推荐做法（换卡不用改）：快捷指令 App → 新建 → 搜「芋圆机助手」→ 选「让当前角色给我发消息」→ 随便起个名（如 芋圆机）→ 之后「Siri，运行 芋圆机」，自动用你正在玩的角色；也可绑到「轻点背面」或操作按钮。想给某个角色单独配一条，选「让角色给我发消息」并选角色即可。")
                         .font(.footnote).foregroundColor(.secondary)
                 }
 
