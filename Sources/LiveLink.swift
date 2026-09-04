@@ -106,6 +106,14 @@ final class LiveLink: ObservableObject {
             let body: String
             if isOptions { body = "" }
             else if path.hasPrefix("/status") || path.hasPrefix("/ping") { body = self.statusJSON() }
+            else if path.hasPrefix("/action") {
+                // 静默执行动作:GET /action?b64=<和 yuyuanji://action?b64= 完全同格式>。App 在后台直接写提醒/排通知/转快捷指令,不用跳 App、不弹框
+                if let comps = URLComponents(string: "http://x" + path), let b64 = comps.queryItems?.first(where: { $0.name == "b64" })?.value,
+                   let u = URL(string: "yuyuanji://action?b64=" + b64) {
+                    DispatchQueue.main.async { ActionHandler.shared.handle(url: u) }
+                    body = "{\"ok\":true}"
+                } else { body = "{\"ok\":false,\"error\":\"bad action\"}" }
+            }
             else { body = "{\"ok\":false,\"error\":\"not found\"}" }
             let bodyData = body.data(using: .utf8) ?? Data()
             let head = "HTTP/1.1 \(isOptions ? "204 No Content" : "200 OK")\r\n"
@@ -135,7 +143,7 @@ final class LiveLink: ObservableObject {
         let full = dev.batteryState == .full
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         let ts = Int(Date().timeIntervalSince1970)
-        return "{\"ok\":true,\"battery\":\(pct),\"charging\":\(charging),\"full\":\(full),\"lowPower\":\(lowPower),\"ts\":\(ts),\"app\":\"YuyuanBridge\"}"
+        return "{\"ok\":true,\"battery\":\(pct),\"approx\":true,\"charging\":\(charging),\"full\":\(full),\"lowPower\":\(lowPower),\"ts\":\(ts),\"app\":\"YuyuanBridge\"}"
     }
     private static let fmt: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f }()
 }
