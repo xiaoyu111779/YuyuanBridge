@@ -65,6 +65,14 @@
 		</dict>
 	</array>
 	<!-- 权限说明文案 -->
+	<!-- Siri 短语里的 App 名可以说成「芋圆机」 -->
+	<key>INAlternativeAppNames</key>
+	<array>
+		<dict>
+			<key>INAlternativeAppName</key>
+			<string>芋圆机</string>
+		</dict>
+	</array>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>用于替角色在你的手机上定真正的闹钟(和系统闹钟一样会响铃)。</string>
 	<key>NSRemindersFullAccessUsageDescription</key>
