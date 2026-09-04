@@ -42,6 +42,12 @@ struct ContentView: View {
                         HStack { Text("请求「通知」权限")
                             Spacer(); Text(store.notifyGranted ? "✅" : "—") }
                     }
+                    Button {
+                        AlarmBridge.requestAuth { ok, msg in store.alarmGranted = ok; store.append(msg) }
+                    } label: {
+                        HStack { Text("请求「闹钟」权限（iOS 26+ 真闹钟）")
+                            Spacer(); Text(store.alarmGranted ? "✅" : "—") }
+                    }
                 }
 
                 Section("自测（不依赖芋圆机，先验证 App 本身能用）") {
@@ -49,6 +55,12 @@ struct ContentView: View {
                         ActionHandler.shared.handle(url: URL(string:
                             "yuyuanji://notify?title=" + enc("测试") +
                             "&body=" + enc("芋圆机助手通了 🎉"))!)
+                    }
+                    Button("③ 定一个 2 分钟后的真闹钟测试") {
+                        let t = Date().addingTimeInterval(120)
+                        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd HH:mm"; f.locale = Locale(identifier: "en_US_POSIX")
+                        ActionHandler.shared.handle(url: URL(string:
+                            "yuyuanji://alarm?title=" + enc("测试闹钟") + "&time=" + enc(f.string(from: t)))!)
                     }
                     Button("② 往提醒事项写一条测试") {
                         ActionHandler.shared.handle(url: URL(string:
