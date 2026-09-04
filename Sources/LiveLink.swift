@@ -97,38 +97,76 @@ final class LiveLink: ObservableObject {
         conns.append(c)
         c.stateUpdateHandler = { [weak self] st in if case .failed = st { self?.drop(c) } ; if case .cancelled = st { self?.drop(c) } }
         c.start(queue: .global(qos: .utility))
-        c.receive(minimumIncompleteLength: 1, maximumLength: 8192) { [weak self] data, _, _, _ in
-            guard let self = self else { return }
-            let req = String(data: data ?? Data(), encoding: .utf8) ?? ""
-            let firstLine = req.split(separator: "\r\n").first.map(String.init) ?? ""
-            let path = firstLine.split(separator: " ").count > 1 ? String(firstLine.split(separator: " ")[1]) : "/"
-            let isOptions = firstLine.hasPrefix("OPTIONS")
-            let body: String
-            if isOptions { body = "" }
-            else if path.hasPrefix("/status") || path.hasPrefix("/ping") { body = self.statusJSON() }
-            else if path.hasPrefix("/action") {
-                // 静默执行动作:GET /action?b64=<和 yuyuanji://action?b64= 完全同格式>。App 在后台直接写提醒/排通知/转快捷指令,不用跳 App、不弹框
-                if let comps = URLComponents(string: "http://x" + path), let b64 = comps.queryItems?.first(where: { $0.name == "b64" })?.value,
-                   let u = URL(string: "yuyuanji://action?b64=" + b64) {
-                    DispatchQueue.main.async { ActionHandler.shared.handle(url: u) }
-                    body = "{\"ok\":true}"
-                } else { body = "{\"ok\":false,\"error\":\"bad action\"}" }
+        var buf = Data()
+        func readMore() {
+            c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isDone, _ in
+                guard let self = self else { return }
+                if let d = data { buf.append(d) }
+                // 找到 header 结束;按 Content-Length 等 body 收完再处理(POST /sync 快照可能几十 KB)
+                if let r = buf.range(of: Data("\r\n\r\n".utf8)) {
+                    let headStr = String(data: buf[buf.startIndex..<r.lowerBound], encoding: .utf8) ?? ""
+                    let cl = headStr.split(separator: "\r\n").first(where: { $0.lowercased().hasPrefix("content-length:") })
+                        .flatMap { Int($0.split(separator: ":", maxSplits: 1)[1].trimmingCharacters(in: .whitespaces)) } ?? 0
+                    let bodyStart = r.upperBound
+                    if buf.count - bodyStart >= cl || isDone {
+                        let body = buf[bodyStart..<min(buf.endIndex, bodyStart + cl)]
+                        self.respond(c, head: headStr, body: Data(body))
+                        return
+                    }
+                }
+                if isDone { self.respond(c, head: String(data: buf, encoding: .utf8) ?? "", body: Data()); return }
+                readMore()
             }
-            else { body = "{\"ok\":false,\"error\":\"not found\"}" }
-            let bodyData = body.data(using: .utf8) ?? Data()
-            let head = "HTTP/1.1 \(isOptions ? "204 No Content" : "200 OK")\r\n"
-                + "Content-Type: application/json; charset=utf-8\r\n"
-                + "Access-Control-Allow-Origin: *\r\n"
-                + "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
-                + "Access-Control-Allow-Headers: *\r\n"
-                + "Access-Control-Allow-Private-Network: true\r\n"
-                + "Cache-Control: no-store\r\n"
-                + "Connection: close\r\n"
-                + "Content-Length: \(bodyData.count)\r\n\r\n"
-            var out = head.data(using: .utf8)!; out.append(bodyData)
-            c.send(content: out, completion: .contentProcessed { _ in c.cancel() })
-            DispatchQueue.main.async { self.lastServed = Self.fmt.string(from: Date()) }
         }
+        readMore()
+    }
+    private func respond(_ c: NWConnection, head: String, body: Data) {
+        let firstLine = head.split(separator: "\r\n").first.map(String.init) ?? ""
+        let parts = firstLine.split(separator: " ")
+        let method = parts.first.map(String.init) ?? "GET"
+        let path = parts.count > 1 ? String(parts[1]) : "/"
+        let q: [String: String] = {
+            guard let comps = URLComponents(string: "http://x" + path) else { return [:] }
+            var m: [String: String] = [:]; comps.queryItems?.forEach { if let v = $0.value { m[$0.name] = v } }; return m
+        }()
+        var status = "200 OK"; var out = ""
+        if method == "OPTIONS" { status = "204 No Content" }
+        else if path.hasPrefix("/status") || path.hasPrefix("/ping") { out = self.statusJSON() }
+        else if path.hasPrefix("/action") {
+            // 静默执行动作:GET /action?b64=<和 yuyuanji://action?b64= 完全同格式>
+            if let b64 = q["b64"], let u = URL(string: "yuyuanji://action?b64=" + b64) {
+                DispatchQueue.main.async { ActionHandler.shared.handle(url: u) }
+                out = "{\"ok\":true}"
+            } else { out = "{\"ok\":false,\"error\":\"bad action\"}" }
+        }
+        else if path.hasPrefix("/sync") {
+            // 芋圆机同步"离线小脑"快照:POST body = base64url(JSON)
+            let b64 = String(data: body, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? (q["b64"] ?? "")
+            let ok = Brain.shared.saveSnapshot(b64: b64)
+            out = ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"bad snapshot\"}"
+        }
+        else if path.hasPrefix("/outbox/ack") {
+            let ids = (q["ids"] ?? "").split(separator: ",").map(String.init)
+            Brain.shared.ack(ids: ids)
+            out = "{\"ok\":true}"
+        }
+        else if path.hasPrefix("/outbox") {
+            out = Brain.shared.outboxJSON()
+        }
+        else { status = "404 Not Found"; out = "{\"ok\":false,\"error\":\"not found\"}" }
+        let bodyData = out.data(using: .utf8) ?? Data()
+        let headOut = "HTTP/1.1 \(status)\r\n"
+            + "Content-Type: application/json; charset=utf-8\r\n"
+            + "Access-Control-Allow-Origin: *\r\n"
+            + "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+            + "Access-Control-Allow-Headers: *\r\n"
+            + "Access-Control-Allow-Private-Network: true\r\n"
+            + "Cache-Control: no-store\r\n"
+            + "Connection: close\r\n"
+            + "Content-Length: \(bodyData.count)\r\n\r\n"
+        var resp = headOut.data(using: .utf8)!; resp.append(bodyData)
+        c.send(content: resp, completion: .contentProcessed { _ in c.cancel() })
+        DispatchQueue.main.async { self.lastServed = Self.fmt.string(from: Date()) }
     }
     private func drop(_ c: NWConnection) { conns.removeAll { $0 === c } }
 
