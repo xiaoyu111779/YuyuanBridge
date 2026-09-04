@@ -13,6 +13,7 @@ struct YuyuanBridgeApp: App {
         UNUserNotificationCenter.current().delegate = NotifyDelegate.shared
         // 上次开着实时联动就自动恢复(用户划掉 App 再打开也能接上)
         LiveLink.shared.restoreIfNeeded()
+        YuyuanShortcuts.updateAppShortcutParameters()   // 让 Siri 认识当前已同步的角色名
     }
 
     var body: some Scene {
