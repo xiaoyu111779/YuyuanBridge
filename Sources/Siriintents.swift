@@ -34,7 +34,7 @@ struct SendMessageIntent: AppIntent {
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let name = character?.name
         let result: (Bool, [String]) = await withCheckedContinuation { cont in
-            Brain.shared.generate(charName: name, trigger: "\(Brain.shared.snapshot(forName: name ?? "")?.userName ?? "对方") 刚通过 Siri 让你给 ta 发条消息") { ok, lines in cont.resume(returning: (ok, lines)) }
+            Brain.shared.generate(charName: name, trigger: "\(Brain.shared.snapshot(forName: name ?? "")?.userName ?? "ta") 想你了,让你给 ta 发几句") { ok, lines in cont.resume(returning: (ok, lines)) }
         }
         let who = name ?? (Brain.shared.charNames.first?.name ?? "角色")
         if result.0 { return .result(dialog: "\(who)发来了消息:\(result.1.first ?? "")") }
