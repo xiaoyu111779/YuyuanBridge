@@ -3,7 +3,7 @@ import UserNotifications
 import Security
 import AppIntents
 
-// "离线小脑":酒馆关着时也能让角色说话。
+// "芋圆出餐台":酒馆关着时也能让角色说话。
 // 芋圆机开着时把【API 配置 + 角色人设 + 最近聊天】作为快照同步进来(POST /sync);
 // Siri / 定时触发时,App 自己调 OpenAI 兼容接口生成 1~3 条短消息 → 弹系统通知 + 存进发件箱;
 // 下次芋圆机打开从 /outbox 拉走、按时间补进微信聊天记录。
@@ -143,13 +143,13 @@ final class Brain {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("Bearer " + key, forHTTPHeaderField: "Authorization")
         req.httpBody = payload
-        AppStore.shared.append("离线小脑:正在让 \(snap.charName) 说话…")
+        AppStore.shared.append("芋圆出餐台:正在让 \(snap.charName) 说话…")
         URLSession.shared.dataTask(with: req) { data, resp, err in
-            if let err = err { AppStore.shared.append("离线小脑失败:\(err.localizedDescription)"); DispatchQueue.main.async { done(false, [err.localizedDescription]) }; return }
+            if let err = err { AppStore.shared.append("芋圆出餐台失败:\(err.localizedDescription)"); DispatchQueue.main.async { done(false, [err.localizedDescription]) }; return }
             guard let data = data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { DispatchQueue.main.async { done(false, ["API 没返回 JSON"]) }; return }
             let content = (((obj["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String) ?? ""
             let lines = Self.parseLines(content)
-            guard !lines.isEmpty else { AppStore.shared.append("离线小脑:模型没说出话来(原文:" + String(content.prefix(60)) + ")"); DispatchQueue.main.async { done(false, ["模型没返回内容"]) }; return }
+            guard !lines.isEmpty else { AppStore.shared.append("芋圆出餐台:模型没说出话来(原文:" + String(content.prefix(60)) + ")"); DispatchQueue.main.async { done(false, ["模型没返回内容"]) }; return }
             let now = Date().timeIntervalSince1970
             for (i, t) in lines.enumerated() {
                 self.outbox.append(Outgoing(id: UUID().uuidString, cardKey: snap.cardKey, charName: snap.charName, text: t, ts: now + Double(i), delivered: false))
