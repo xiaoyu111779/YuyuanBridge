@@ -14,6 +14,7 @@ final class Brain {
         var cardKey: String
         var charName: String
         var userName: String
+        var sysPrompt: String        // 芋圆机正常私聊回复时的【完整系统提示】(有它就直接用,和在线回复口径一致)
         var persona: String          // 精简线上人设
         var lore: String             // 剧情设定:为什么 ta 能看到/操作 user 的手机
         var recent: [Msg]            // 最近对话(旧→新)
@@ -55,7 +56,7 @@ final class Brain {
             return Snapshot.Msg(role: r, text: t, time: m["time"] as? Double)
         }
         let snap = Snapshot(cardKey: cardKey, charName: charName, userName: (obj["userName"] as? String) ?? "我",
-                            persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", recent: Array(recent.suffix(30)),
+                            sysPrompt: (obj["sysPrompt"] as? String) ?? "", persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", recent: Array(recent.suffix(30)),
                             story: (obj["story"] as? String) ?? "", storyTime: (obj["storyTime"] as? String) ?? "",
                             apiUrl: (obj["apiUrl"] as? String) ?? "", apiModel: (obj["apiModel"] as? String) ?? "",
                             updatedAt: Date().timeIntervalSince1970)
@@ -63,7 +64,6 @@ final class Brain {
         snapshots[cardKey] = snap
         UserDefaults.standard.set(cardKey, forKey: "brain.lastCard")
         persist()
-        AppStore.shared.append("已同步快照:\(charName)(\(recent.count) 条对话)")
         YuyuanShortcuts.updateAppShortcutParameters()   // 关键:角色名是动态参数,不刷新 Siri 不认识
         return true
     }
@@ -95,32 +95,46 @@ final class Brain {
         guard let snap = snapshot(forName: charName ?? "") else { done(false, ["还没同步过角色快照:先在芋圆机里开「手机联动」并聊一句"]); return }
         let key = Keychain.get("apikey." + snap.cardKey) ?? ""
         guard !snap.apiUrl.isEmpty, !key.isEmpty, !snap.apiModel.isEmpty else { done(false, ["快照里没有可用的 API 配置(芋圆机里先配好副 API)"]); return }
+        // 自己最近发过的离线消息(发件箱,24h 内,同一张卡)也接进对话——不然下次 Siri 看不到上一条说了啥
+        let mineRecent = outbox.filter { $0.cardKey == snap.cardKey && Date().timeIntervalSince1970 - $0.ts < 86400 }.suffix(10)
+        var convo: [Snapshot.Msg] = snap.recent
+        for o in mineRecent { convo.append(Snapshot.Msg(role: "npc", text: o.text, time: o.ts * 1000)) }
         var recentBlock = ""
-        if !snap.recent.isEmpty {
-            let lines = snap.recent.suffix(20).map { m -> String in
+        if !convo.isEmpty {
+            let lines = convo.suffix(24).map { m -> String in
                 let who = (m.role == "me" || m.role == "user") ? snap.userName : snap.charName
                 return who + ":" + m.text
             }
-            recentBlock = "【你们最近的微信聊天记录(仅供参考口吻和话题,旧→新)】\n" + lines.joined(separator: "\n") + "\n"
+            recentBlock = "【你们最近的微信聊天记录(旧→新,含你刚才在 ta 不在时发过的)】\n" + lines.joined(separator: "\n") + "\n"
         }
         let storyBlock = snap.story.isEmpty ? "" : "【主线最新剧情(你们俩的故事走到哪了,旧→新;以此为准,微信消息要接得上这里的进展)】\n\(snap.story)\n"
         let timeBlock = snap.storyTime.isEmpty ? "" : "【剧情时间】\(snap.storyTime)\n"
         let loreBlock = snap.lore.isEmpty ? "" : "【剧情设定】\(snap.lore)\n"
-        let sys = """
+        let offlineRule = """
+【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
+【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要别的字段、不要 markdown、不要解释。
+"""
+        let sys: String
+        if !snap.sysPrompt.isEmpty {
+            // 用芋圆机正常私聊回复的那套完整系统提示(口径一致),替换宏,再接离线补充
+            let base = snap.sysPrompt
+                .replacingOccurrences(of: "{{user}}", with: snap.userName)
+                .replacingOccurrences(of: "{{char}}", with: snap.charName)
+            sys = base + "\n\n" + loreBlock + timeBlock + recentBlock + offlineRule
+        } else {
+            sys = """
 你现在是「\(snap.charName)」,正在用微信和「\(snap.userName)」聊天。以下是你的线上人设与说话方式:
 \(snap.persona.isEmpty ? "(按最近对话的口吻来)" : snap.persona)
 
 \(loreBlock)\(storyBlock)\(timeBlock)
 \(recentBlock)
-【世界内铁律】你说的每个字都是「\(snap.charName)」本人发的微信。绝对禁止任何旁白、剧本口吻或元话术:不许出现"玩家/用户/模型/系统/AI/助手/测试/剧情/正文/结尾/续写/回话"这类词,不许描述场景或分析对方,不许用第三人称说自己。就像真人拿起手机随手发几条。
-【场景】\(trigger)。\(snap.userName) 现在不在酒馆里,你要【主动新发】1~3 条【很短】的微信消息(每条 1~2 句,像真人发微信,不要一大段,不要旁白,不要动作描写,不要出现你自己的名字前缀)。内容要贴合上面主线剧情的最新进展和你们的关系;【绝对不要】重复或改写上面聊天记录里已经说过的话,要说新的。
-【输出格式·严格】每条消息单独一行,直接写消息正文;不要编号、不要引号、不要方括号、不要 JSON、不要 markdown、不要任何说明或标题。例如:
-起了吗
-今天记得吃早饭
+【世界内铁律】你说的每个字都是「\(snap.charName)」本人发的微信。绝对禁止任何旁白、剧本口吻或元话术。
+\(offlineRule)
 """
+        }
         var messages: [[String: String]] = [["role": "system", "content": sys]]
-        messages.append(["role": "user", "content": "\(trigger)。现在直接发消息(每条一行)。"])
-        let body: [String: Any] = ["model": snap.apiModel, "messages": messages, "temperature": 0.9, "max_tokens": 300]
+        messages.append(["role": "user", "content": "(\(trigger)。现在按【离线补充】的要求主动发消息,只输出 JSON。)"])
+        let body: [String: Any] = ["model": snap.apiModel, "messages": messages, "temperature": 0.9, "max_tokens": 1500]
         var base = snap.apiUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         while base.hasSuffix("/") { base.removeLast() }
         if !base.hasSuffix("/chat/completions") { base += "/chat/completions" }
@@ -148,13 +162,28 @@ final class Brain {
     }
     private static func parseLines(_ s: String) -> [String] {
         var t = s.replacingOccurrences(of: "```json", with: "").replacingOccurrences(of: "```", with: "")
+        // 首选:芋圆机同款 {"texts":[...]} JSON 对象
+        if let o1 = t.firstIndex(of: "{"), let o2 = t.lastIndex(of: "}"), o1 < o2 {
+            let js = String(t[o1...o2])
+            if let d = js.data(using: .utf8), let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let arr = obj["texts"] as? [Any] {
+                let out = arr.compactMap { $0 as? String }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { $0.count >= 1 && $0.count <= 200 }
+                if !out.isEmpty { return Array(out.prefix(3)) }
+            }
+        }
         // 万一还是给了 JSON 数组:抠出所有引号里的字符串
         if let r1 = t.firstIndex(of: "["), let r2 = t.lastIndex(of: "]"), r1 < r2 {
             let inner = String(t[t.index(after: r1)..<r2])
             let quoted = Self.regexAll(inner, pattern: "\"((?:[^\"\\\\]|\\\\.)*)\"")
             if quoted.count >= 1 { t = quoted.joined(separator: "\n") }
         }
-        let junk = ["**", "constraints", "output", "format", "json", "assistant", "system", "user:", "```", "玩家", "用户", "模型", "系统", "ai ", "助手", "测试", "剧情", "正文", "结尾", "续写", "旁白", "回话", "角色扮演", "第三人称"]
+        // 优先:只认行首 >> 的行(思路/方案/分析没标记→天然丢弃)
+        let marked = t.split(whereSeparator: { $0 == "\n" || $0 == "\r" }).map { String($0).trimmingCharacters(in: .whitespaces) }
+            .filter { $0.hasPrefix(">>") || $0.hasPrefix("》》") || $0.hasPrefix("＞＞") }
+            .map { String($0.dropFirst(2)).trimmingCharacters(in: CharacterSet(charactersIn: " \"“”「」")) }
+            .filter { $0.count >= 2 && $0.count <= 120 }
+        if !marked.isEmpty { return Array(marked.prefix(3)) }
+        let junk = ["**", "constraints", "output", "format", "json", "assistant", "system", "user:", "```", "玩家", "用户", "模型", "系统", "ai ", "助手", "测试", "剧情", "正文", "结尾", "续写", "旁白", "回话", "角色扮演", "第三人称", "思路", "方案", "选项", "分析", "步骤", "策略", "备选", "候选", "版本", "总结", "综上", "如下", "以下", "首先", "其次", "最后", "消息一", "消息二", "消息三", "第一条", "第二条", "第三条"]
         var out: [String] = []
         for raw in t.split(whereSeparator: { $0 == "\n" || $0 == "\r" }) {
             var l = String(raw).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -166,6 +195,8 @@ final class Brain {
             let low = l.lowercased()
             if junk.contains(where: { low.contains($0) }) { continue }
             if l.range(of: "^[\\p{Han}\\p{L}\\p{N}]", options: .regularExpression) == nil { continue }  // 不是以文字开头(纯符号)→丢
+            if l.hasSuffix(":") || l.hasSuffix("：") { continue }   // 标题行(思路一:)→丢
+            if l.count > 90 { continue }                               // 微信消息不会这么长,长的多半是分析
             out.append(l)
             if out.count >= 3 { break }
         }
