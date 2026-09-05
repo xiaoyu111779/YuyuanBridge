@@ -133,10 +133,21 @@ final class Brain {
             if !parts.isEmpty { liveStatus = "【\(snap.userName) 手机/身体的真实状态·此刻】" + parts.joined(separator: ",") + "。可自然提及,别念报表。\n" }
             liveStatus += "【数据铁律】上面没给的数据(比如没写电量/步数)就是【你现在看不到】,【绝对不要】自己编数字;别说\"剩 15%\"这种没有依据的话。\n"
         }
+        // v17:未回复感知——user 最后一条之后,你已经连发了几条离线消息、最近一条多久前
+        var unansweredBlock = ""
+        do {
+            let lastUserTs = snap.recent.filter { $0.role == "me" || $0.role == "user" }.last?.time ?? 0   // 毫秒
+            let sinceUser = outbox.filter { $0.cardKey == snap.cardKey && ($0.kind ?? "msg") == "msg" && $0.ts * 1000 > lastUserTs }
+            if !sinceUser.isEmpty, let lastTs = sinceUser.map({ $0.ts }).max() {
+                let mins = max(1, Int((Date().timeIntervalSince1970 - lastTs) / 60))
+                let ago = mins >= 60 ? "\(mins / 60) 小时 \(mins % 60) 分钟" : "\(mins) 分钟"
+                unansweredBlock = "【现状】\(snap.userName) 最后一次回你之后,你已经连发了 \(sinceUser.count) 条 ta 都没回,最近一条是 \(ago) 前。按你的性格自然反应(可以在意、可以等、可以嘴硬、可以换个话题),【不要】机械重复前几条的内容,也别每条都追问。\n"
+            }
+        }
         let memoAllowed = !snap.shortcutName.isEmpty && Date().timeIntervalSince1970 * 1000 > snap.memoOkAfter
         let offlineRule = """
-\(liveStatus)【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
-【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要 markdown、不要解释。\(memoAllowed ? "可选:若剧情里正好有值得留一句的时刻(叮嘱/没说出口的话/替 ta 记小心愿/约定/纪念),可以再加一个字段 \"memo\":{\"title\":\"短标题\",\"text\":\"3~6 句\"}——这是写进 \(snap.userName) 真实手机备忘录、ta 一定会看到的纸条,第二人称直接对 ta 说,不写内心独白;绝大多数时候【不要】加这个字段。" : "")
+\(liveStatus)\(unansweredBlock)【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
+【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要 markdown、不要解释。\(memoAllowed ? "可选:若剧情里正好有值得留一句的时刻(叮嘱/没说出口的话/替 ta 记小心愿/约定/纪念),可以再加一个字段 \"memo\":{\"title\":\"短标题\",\"text\":\"3~6 句\"}——这是写进 \(snap.userName) 真实手机备忘录、ta 一定会看到的纸条,第二人称直接对 ta 说,不写内心独白;必须用你自己人设的说话方式,内容只来自你们的剧情和最近聊天、不编;绝大多数时候【不要】加这个字段。" : "")
 """
         let sys: String
         if !snap.sysPrompt.isEmpty {
