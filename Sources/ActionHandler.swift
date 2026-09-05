@@ -29,7 +29,10 @@ final class ActionHandler {
                      character: payload["character"],
                      extraAct: payload["act"] ?? "start",
                      extraKind: payload["kind"] ?? "listen",
-                     extraProgress: Double(payload["progress"] ?? "") ?? 0)
+                     extraProgress: Double(payload["progress"] ?? "") ?? 0,
+                     extraImage: (payload["cover"]?.isEmpty == false ? payload["cover"] : payload["avatar"]) ?? "",
+                     extraDuration: Double(payload["duration"] ?? "") ?? 0,
+                     extraPosition: Double(payload["position"] ?? "") ?? 0)
             return
         }
         // 也允许 action?json=<百分号编码的JSON>
@@ -49,7 +52,7 @@ final class ActionHandler {
                  character: q["character"])
     }
 
-    private func dispatch(type: String, title: String, body: String, timeStr: String?, character: String?, extraAct: String = "start", extraKind: String = "listen", extraProgress: Double = 0) {
+    private func dispatch(type: String, title: String, body: String, timeStr: String?, character: String?, extraAct: String = "start", extraKind: String = "listen", extraProgress: Double = 0, extraImage: String = "", extraDuration: Double = 0, extraPosition: Double = 0) {
         let when = timeStr.flatMap(Self.parseDate)
         let bodyText = [character.map { "\($0)：" } ?? "", body].joined()
         switch type {
@@ -63,7 +66,7 @@ final class ActionHandler {
         case "activity":
             // 灵动岛:act=start|update|end,kind=listen|read,title/body/progress 由芋圆机同步
             AppStore.shared.append("收到灵动岛动作:\(extraAct) \(extraKind) 「\(title)」 前台=\(UIApplication.shared.applicationState == .active)")
-            ActivityBridge.shared.handle(act: extraAct, kind: extraKind, title: title, subtitle: body, progress: extraProgress, charName: character ?? "")
+            ActivityBridge.shared.handle(act: extraAct, kind: extraKind, title: title, subtitle: body, progress: extraProgress, charName: character ?? "", imageSrc: extraImage, duration: extraDuration, position: extraPosition)
         case "calendar":
             // 日历日程(EventKit,静默):title=事项,time=开始;默认 1 小时
             guard let when = when else { AppStore.shared.append("写日历:没给时间"); return }
