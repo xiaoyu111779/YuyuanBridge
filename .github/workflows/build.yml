@@ -63,7 +63,16 @@ jobs:
           EXE=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$APP_PATH/Info.plist")
           if [ ! -f "$APP_PATH/$EXE" ]; then echo "❌ 可执行文件 $EXE 不存在于 .app 里"; exit 1; fi
           echo "✓ 可执行文件存在: $EXE"
+          # ▼ App Intents(Siri/快捷指令动作)元数据自检:没有这个文件夹,快捷指令里就看不到「让角色给我发消息」、Siri 也认不出
+          if [ -d "$APP_PATH/Metadata.appintents" ]; then
+            echo "✓ App Intents 元数据已打进 .app:"; ls -la "$APP_PATH/Metadata.appintents" | head -20
+          else
+            echo "❌ 缺 Metadata.appintents —— App Intents 元数据没生成(Siri/快捷指令动作会不可见)。看上面编译日志里有没有 ExtractAppIntentsMetadata / appintentsmetadataprocessor 的报错"
+            exit 1
+          fi
           # ▲
+          # ▼ 灵动岛扩展:先签 PlugIns 里的 appex 再签主 App(顺序不能反),并打印确认扩展打进去了
+          if [ -d "$APP_PATH/PlugIns" ]; then ls -la "$APP_PATH/PlugIns"; for ex in "$APP_PATH"/PlugIns/*.appex; do [ -d "$ex" ] && codesign --force --sign - --timestamp=none "$ex" || true; done; echo "✓ 扩展已签"; else echo "⚠ 没有 PlugIns(灵动岛扩展没打进来,看编译日志里 YuyuanBridgeWidget 是否编了)"; fi
           codesign --force --sign - --timestamp=none "$APP_PATH" || true
           rm -rf staging out
           mkdir -p staging/Payload out
