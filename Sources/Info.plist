@@ -27,6 +27,11 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- 灵动岛 / 实时活动 -->
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>CFBundleDisplayName</key>
 	<string>芋圆机助手</string>
 	<key>CFBundleName</key>
