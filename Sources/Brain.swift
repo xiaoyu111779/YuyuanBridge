@@ -18,6 +18,8 @@ final class Brain {
         var sysPrompt: String        // 芋圆机正常私聊回复时的【完整系统提示】(有它就直接用,和在线回复口径一致)
         var persona: String          // 精简线上人设
         var lore: String             // 剧情设定:为什么 ta 能看到/操作 user 的手机
+        var shortcutName: String     // user 自建的写备忘录快捷指令名(空=没开备忘录能力)
+        var memoOkAfter: Double      // 毫秒时间戳:此时间之后才允许主动留纸条(频率门控)
         var recent: [Msg]            // 最近对话(旧→新)
         var story: String            // 主线最新剧情(剧情摘要+最近楼层),酒馆关着时也接得上
         var storyTime: String        // 剧情时间(开了剧情时间才有)
@@ -26,7 +28,7 @@ final class Brain {
         var updatedAt: Double
         struct Msg: Codable { var role: String; var text: String; var time: Double? }
     }
-    struct Outgoing: Codable { var id: String; var cardKey: String; var charName: String; var text: String; var ts: Double; var delivered: Bool }
+    struct Outgoing: Codable { var id: String; var cardKey: String; var charName: String; var text: String; var ts: Double; var delivered: Bool; var kind: String? = nil; var title: String? = nil }
 
     private let fm = FileManager.default
     private var dir: URL { let d = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("brain", isDirectory: true); try? fm.createDirectory(at: d, withIntermediateDirectories: true); return d }
@@ -57,7 +59,7 @@ final class Brain {
             return Snapshot.Msg(role: r, text: t, time: m["time"] as? Double)
         }
         let snap = Snapshot(cardKey: cardKey, charName: charName, userName: (obj["userName"] as? String) ?? "我",
-                            sysPrompt: (obj["sysPrompt"] as? String) ?? "", persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", recent: Array(recent.suffix(30)),
+                            sysPrompt: (obj["sysPrompt"] as? String) ?? "", persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", shortcutName: (obj["shortcutName"] as? String) ?? "", memoOkAfter: (obj["memoOkAfter"] as? Double) ?? 0, recent: Array(recent.suffix(30)),
                             story: (obj["story"] as? String) ?? "", storyTime: (obj["storyTime"] as? String) ?? "",
                             apiUrl: (obj["apiUrl"] as? String) ?? "", apiModel: (obj["apiModel"] as? String) ?? "",
                             updatedAt: Date().timeIntervalSince1970)
@@ -79,7 +81,7 @@ final class Brain {
     private(set) var outbox: [Outgoing] = []
     func outboxJSON() -> String {
         let pending = outbox.filter { !$0.delivered }
-        let arr: [[String: Any]] = pending.map { ["id": $0.id, "cardKey": $0.cardKey, "charName": $0.charName, "text": $0.text, "ts": $0.ts] }
+        let arr: [[String: Any]] = pending.map { ["id": $0.id, "cardKey": $0.cardKey, "charName": $0.charName, "text": $0.text, "ts": $0.ts, "kind": $0.kind ?? "msg", "title": $0.title ?? ""] }
         let d = (try? JSONSerialization.data(withJSONObject: ["ok": true, "items": arr])) ?? Data("{\"ok\":true,\"items\":[]}".utf8)
         return String(data: d, encoding: .utf8) ?? "{\"ok\":true,\"items\":[]}"
     }
@@ -131,9 +133,10 @@ final class Brain {
             if !parts.isEmpty { liveStatus = "【\(snap.userName) 手机/身体的真实状态·此刻】" + parts.joined(separator: ",") + "。可自然提及,别念报表。\n" }
             liveStatus += "【数据铁律】上面没给的数据(比如没写电量/步数)就是【你现在看不到】,【绝对不要】自己编数字;别说\"剩 15%\"这种没有依据的话。\n"
         }
+        let memoAllowed = !snap.shortcutName.isEmpty && Date().timeIntervalSince1970 * 1000 > snap.memoOkAfter
         let offlineRule = """
 \(liveStatus)【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
-【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要别的字段、不要 markdown、不要解释。
+【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要 markdown、不要解释。\(memoAllowed ? "可选:若剧情里正好有值得留一句的时刻(叮嘱/没说出口的话/替 ta 记小心愿/约定/纪念),可以再加一个字段 \"memo\":{\"title\":\"短标题\",\"text\":\"3~6 句\"}——这是写进 \(snap.userName) 真实手机备忘录、ta 一定会看到的纸条,第二人称直接对 ta 说,不写内心独白;绝大多数时候【不要】加这个字段。" : "")
 """
         let sys: String
         if !snap.sysPrompt.isEmpty {
@@ -169,6 +172,16 @@ final class Brain {
             if let err = err { AppStore.shared.append("芋圆出餐台失败:\(err.localizedDescription)"); DispatchQueue.main.async { done(false, [err.localizedDescription]) }; return }
             guard let data = data, let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { DispatchQueue.main.async { done(false, ["API 没返回 JSON"]) }; return }
             let content = (((obj["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String) ?? ""
+            // v15:主动留纸条(memo)→进发件箱 kind:memo,芋圆机拉回后落成可点灰字
+            if let o1 = content.firstIndex(of: "{"), let o2 = content.lastIndex(of: "}"), o1 < o2,
+               let d0 = String(content[o1...o2]).data(using: .utf8), let obj0 = try? JSONSerialization.jsonObject(with: d0) as? [String: Any],
+               let memo = obj0["memo"] as? [String: Any], let mtext = (memo["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !mtext.isEmpty,
+               !snap.shortcutName.isEmpty, Date().timeIntervalSince1970 * 1000 > snap.memoOkAfter {
+                let mtitle = (memo["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                self.outbox.append(Outgoing(id: UUID().uuidString, cardKey: snap.cardKey, charName: snap.charName, text: String(mtext.prefix(600)), ts: Date().timeIntervalSince1970 + 5, delivered: false, kind: "memo", title: String(mtitle.prefix(30))))
+                if var sn = self.snapshots[snap.cardKey] { sn.memoOkAfter = Date().timeIntervalSince1970 * 1000 + 86400000; self.snapshots[snap.cardKey] = sn }
+                AppStore.shared.append("\(snap.charName) 留了一张纸条(打开芋圆机后点灰字写入备忘录)")
+            }
             let lines = Self.parseLines(content)
             guard !lines.isEmpty else { AppStore.shared.append("芋圆出餐台:模型没说出话来(原文:" + String(content.prefix(60)) + ")"); DispatchQueue.main.async { done(false, ["模型没返回内容"]) }; return }
             let now = Date().timeIntervalSince1970
