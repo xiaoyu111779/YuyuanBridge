@@ -80,6 +80,10 @@ struct ContentView: View {
                         ActionHandler.shared.handle(url: URL(string:
                             "yuyuanji://alarm?title=" + enc("测试闹钟") + "&time=" + enc(f.string(from: t)))!)
                     }
+                    Button("灵动岛测试（显示 20 秒）") {
+                        ActivityBridge.shared.handle(act: "start", kind: "listen", title: "测试歌曲", subtitle: "和 测试角色 一起听 · 测试歌手", progress: 0.42, charName: "测")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { ActivityBridge.shared.end() }
+                    }
                     Button("往提醒事项写一条测试") {
                         ActionHandler.shared.handle(url: URL(string:
                             "yuyuanji://reminder?title=" + enc("测试提醒") + "&body=" + enc("来自芋圆机助手"))!)
