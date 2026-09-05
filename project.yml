@@ -2,7 +2,7 @@ name: YuyuanBridge
 options:
   bundleIdPrefix: com.yuyuan
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "16.2"
   createIntermediateGroups: true
 
 targets:
@@ -14,6 +14,10 @@ targets:
         includes:
           - "*.swift"
           - "Info.plist"
+      - path: Shared          # 主 App 与灵动岛扩展共用的数据结构
+    dependencies:
+      - target: YuyuanBridgeWidget
+        embed: true           # 把扩展打进 App 的 PlugIns/
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.yuyuan.bridge
@@ -26,11 +30,34 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         CODE_SIGN_ENTITLEMENTS: Sources/Entitlements.plist   # HealthKit 权限(全能签重签时需保留)
 
+  # 灵动岛 / 实时活动 扩展(不用 App Group;数据由 ActivityKit 直接传)
+  YuyuanBridgeWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Widget
+        includes:
+          - "*.swift"
+          - "Info.plist"
+      - path: Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yuyuan.bridge.widget    # 必须是主 App bundle id 的子级
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: Widget/Info.plist
+        SWIFT_VERSION: "5.0"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SKIP_INSTALL: YES
+
 schemes:
   YuyuanBridge:
     build:
       targets:
         YuyuanBridge: all
+        YuyuanBridgeWidget: all
     run:
       config: Release
     archive:
