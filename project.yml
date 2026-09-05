@@ -39,6 +39,7 @@ targets:
         includes:
           - "*.swift"
           - "Info.plist"
+          - "Entitlements.plist"
       - path: Shared
     settings:
       base:
@@ -51,6 +52,7 @@ targets:
         SWIFT_VERSION: "5.0"
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: Widget/Entitlements.plist   # App Group(共享封面/头像图片)
 
 schemes:
   YuyuanBridge:
