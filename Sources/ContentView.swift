@@ -81,7 +81,16 @@ struct ContentView: View {
                             "yuyuanji://alarm?title=" + enc("测试闹钟") + "&time=" + enc(f.string(from: t)))!)
                     }
                     Button("灵动岛测试（显示 20 秒）") {
-                        ActivityBridge.shared.handle(act: "start", kind: "listen", title: "测试歌曲", subtitle: "和 测试角色 一起听 · 测试歌手", progress: 0.42, charName: "测")
+                        // 自检:安装后的真实包名 / PlugIns 里有没有扩展 / 扩展包名 —— 签名工具改了包名会让扩展不再是子级,系统就不渲染
+                        let mainId = Bundle.main.bundleIdentifier ?? "?"
+                        var exInfo = "PlugIns:无"
+                        if let purl = Bundle.main.builtInPlugInsURL, let items = try? FileManager.default.contentsOfDirectory(at: purl, includingPropertiesForKeys: nil) {
+                            let names = items.map { $0.lastPathComponent }
+                            exInfo = "PlugIns:" + (names.isEmpty ? "空" : names.joined(separator: ","))
+                            if let ex = items.first(where: { $0.pathExtension == "appex" }), let b = Bundle(url: ex) { exInfo += " | 扩展包名:" + (b.bundleIdentifier ?? "?") }
+                        }
+                        store.append("自检 主App包名:\(mainId) | \(exInfo) | 实时活动允许:\(ActivityBridge.shared.enabled)")
+                        ActivityBridge.shared.handle(act: "start", kind: "listen", title: "测试歌曲", subtitle: "和 测试角色 一起听", progress: 0.42, charName: "测", imageSrc: "", duration: 200, position: 84)
                         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { ActivityBridge.shared.end() }
                     }
                     Button("往提醒事项写一条测试") {
