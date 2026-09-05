@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import UserNotifications
 import Security
 import AppIntents
@@ -114,8 +115,24 @@ final class Brain {
         if !snap.storyTime.isEmpty { timeBlock = "【剧情时间】" + snap.storyTime + "\n" }
         var loreBlock = ""
         if !snap.lore.isEmpty { loreBlock = "【剧情设定】" + snap.lore + "\n" }
+        // v14:此刻的真实手机状态(App 直接读,不用快照里的过期值);没有的数据明确告诉模型没有,不许编
+        var liveStatus = ""
+        do {
+            let dev = UIDevice.current; dev.isBatteryMonitoringEnabled = true
+            let lvl = dev.batteryLevel; let pct = lvl < 0 ? -1 : Int((lvl * 100).rounded())
+            var parts: [String] = []
+            if pct >= 0 {
+                var chg = false; switch dev.batteryState { case .charging, .full: chg = true; default: chg = false }
+                parts.append("电量约 \(pct)%" + (chg ? "(充电中)" : ""))
+            }
+            HealthBridge.shared.refresh()
+            if HealthBridge.shared.steps >= 0 { parts.append("今天走了 \(HealthBridge.shared.steps) 步") }
+            if HealthBridge.shared.sleepMin >= 0 { parts.append("昨晚睡了 \(HealthBridge.shared.sleepMin / 60) 小时 \(HealthBridge.shared.sleepMin % 60) 分") }
+            if !parts.isEmpty { liveStatus = "【\(snap.userName) 手机/身体的真实状态·此刻】" + parts.joined(separator: ",") + "。可自然提及,别念报表。\n" }
+            liveStatus += "【数据铁律】上面没给的数据(比如没写电量/步数)就是【你现在看不到】,【绝对不要】自己编数字;别说\"剩 15%\"这种没有依据的话。\n"
+        }
         let offlineRule = """
-【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
+\(liveStatus)【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
 【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要别的字段、不要 markdown、不要解释。
 """
         let sys: String
