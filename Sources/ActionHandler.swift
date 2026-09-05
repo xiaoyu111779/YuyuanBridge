@@ -62,6 +62,7 @@ final class ActionHandler {
             runShortcut(name: title, input: bodyText.isEmpty ? body : bodyText)
         case "activity":
             // 灵动岛:act=start|update|end,kind=listen|read,title/body/progress 由芋圆机同步
+            AppStore.shared.append("收到灵动岛动作:\(extraAct) \(extraKind) 「\(title)」 前台=\(UIApplication.shared.applicationState == .active)")
             ActivityBridge.shared.handle(act: extraAct, kind: extraKind, title: title, subtitle: body, progress: extraProgress, charName: character ?? "")
         case "calendar":
             // 日历日程(EventKit,静默):title=事项,time=开始;默认 1 小时
