@@ -21,6 +21,7 @@ final class Brain {
         var senseJSON: String        // 主动感知配置 JSON(开关/免打扰/上限/久未联系小时)
         var sense: [String: Any]? { (try? JSONSerialization.jsonObject(with: Data(senseJSON.utf8))) as? [String: Any] }
         var lastUserAt: Double       // user 最后一条微信的毫秒时间戳
+        var saidSleepAt: Double      // user 最近说"去睡/晚安"的毫秒时间戳(之后没再发消息;0=没有)
         var useStoryTime: Bool
         var shortcutName: String     // user 自建的写备忘录快捷指令名(空=没开备忘录能力)
         var memoOkAfter: Double      // 毫秒时间戳:此时间之后才允许主动留纸条(频率门控)
@@ -63,7 +64,7 @@ final class Brain {
             return Snapshot.Msg(role: r, text: t, time: m["time"] as? Double)
         }
         let snap = Snapshot(cardKey: cardKey, charName: charName, userName: (obj["userName"] as? String) ?? "我",
-                            sysPrompt: (obj["sysPrompt"] as? String) ?? "", persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", senseJSON: (obj["sense"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "", lastUserAt: (obj["lastUserAt"] as? Double) ?? 0, useStoryTime: (obj["useStoryTime"] as? Bool) ?? false, shortcutName: (obj["shortcutName"] as? String) ?? "", memoOkAfter: (obj["memoOkAfter"] as? Double) ?? 0, recent: Array(recent.suffix(30)),
+                            sysPrompt: (obj["sysPrompt"] as? String) ?? "", persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", senseJSON: (obj["sense"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "", lastUserAt: (obj["lastUserAt"] as? Double) ?? 0, saidSleepAt: (obj["saidSleepAt"] as? Double) ?? 0, useStoryTime: (obj["useStoryTime"] as? Bool) ?? false, shortcutName: (obj["shortcutName"] as? String) ?? "", memoOkAfter: (obj["memoOkAfter"] as? Double) ?? 0, recent: Array(recent.suffix(30)),
                             story: (obj["story"] as? String) ?? "", storyTime: (obj["storyTime"] as? String) ?? "",
                             apiUrl: (obj["apiUrl"] as? String) ?? "", apiModel: (obj["apiModel"] as? String) ?? "",
                             updatedAt: Date().timeIntervalSince1970)
