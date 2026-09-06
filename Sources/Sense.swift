@@ -173,9 +173,11 @@ final class Sense {
 
     // 快捷指令报告的事件
     func external(name: String, detail: String) {
+        AppStore.shared.append("快捷指令上报:\(name) \(detail)")
         // 活跃/睡眠信号(不当成要开口的事件)
         if name == "phone_active" { noteActive(source: "unlock"); return }
         if name == "app_opened" {
+            AppStore.shared.append("感知:收到打开 App 上报「\(detail.isEmpty ? "?" : detail)」")
             noteActive(source: "app:" + detail)
             ud.set(detail, forKey: key("lastApp")); ud.set(Date(), forKey: key("lastAppAt"))
             // 说了去睡又打开某 App → 立刻提醒(比 said_sleep_but_awake 更具体)
@@ -186,6 +188,12 @@ final class Sense {
                     return
                 }
             }
+            // v30:普通"打开了某 App"本身就是事件(之前漏了,只在说了睡的情况下才有)——同一 App 30 分钟内只报一次
+            let k = "app." + detail
+            if let snap = Brain.shared.snapshot(forName: ""), cfg(for: snap).enabled, cfg(for: snap).external {
+                if cooled(k, hours: 0.5) { markFired(k); enqueue(name: "app_opened", detail: detail.isEmpty ? "某个 App" : detail, cfg: cfg(for: snap)) }
+                else { AppStore.shared.append("感知:「\(detail)」30 分钟内已报过,这次不重复") }
+            } else { AppStore.shared.append("感知:主动感知或「快捷指令报告的事」没开,忽略") }
             return
         }
         if name == "sleep_focus_off" { prepSleepAt = nil; noteActive(source: "focus_off"); return }
