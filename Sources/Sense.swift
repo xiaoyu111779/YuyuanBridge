@@ -15,13 +15,15 @@ final class Sense {
     private let ekStore = EKEventStore()
 
     // MARK: 配置(从芋圆机快照来)
-    struct Cfg { var enabled = false, battery = true, sleep = true, steps = true, calendar = true, inactive = true, external = true; var quietStart = "23:30", quietEnd = "08:00"; var dailyCap = 6; var inactiveHours = 5.0 }
+    struct Cfg { var enabled = false, battery = true, sleep = true, steps = true, calendar = true, inactive = true, external = true; var quietStart = "23:30", quietEnd = "08:00"; var dailyCap = 6; var inactiveHours = 5.0; var followUps = 2 }
     func cfg(for snap: Brain.Snapshot?) -> Cfg {
         var c = Cfg(); guard let s = snap?.sense else { return c }
         c.enabled = (s["enabled"] as? Bool) ?? false; c.battery = (s["battery"] as? Bool) ?? true; c.sleep = (s["sleep"] as? Bool) ?? true; c.steps = (s["steps"] as? Bool) ?? true
         c.calendar = (s["calendar"] as? Bool) ?? true; c.inactive = (s["inactive"] as? Bool) ?? true; c.external = (s["external"] as? Bool) ?? true
         c.quietStart = (s["quietStart"] as? String) ?? "23:30"; c.quietEnd = (s["quietEnd"] as? String) ?? "08:00"
         c.dailyCap = Int((s["dailyCap"] as? Double) ?? Double((s["dailyCap"] as? Int) ?? 6)); c.inactiveHours = (s["inactiveHours"] as? Double) ?? Double((s["inactiveHours"] as? Int) ?? 5)
+        let fuRaw: Any? = s["followUp"] ?? s["followUps"]
+        c.followUps = max(1, min(3, Int((fuRaw as? Double) ?? Double((fuRaw as? Int) ?? 2))))
         return c
     }
 
@@ -50,6 +52,54 @@ final class Sense {
         return a <= b ? (now >= a && now < b) : (now >= a || now < b)
     }
 
+    // MARK: 活跃度 & 睡眠推断(没手表也能用)
+    //  信号:解锁上报 phone_active / 芋圆机在线轮询 / 睡眠专注 sleep_focus_on|off / 就寝 bedtime
+    //  规则:专注开或就寝到 → "准备睡"(bedtime_ready);之后连续 ≥2.5h 无任何活跃 → 判"睡了"(静默);再次活跃 → "醒了"(估睡了多久)
+    private var lastActiveAt: Date { get { (ud.object(forKey: key("lastActive")) as? Date) ?? .distantPast } set { ud.set(newValue, forKey: key("lastActive")) } }
+    private var asleepSince: Date? { get { ud.object(forKey: key("asleepSince")) as? Date } set { ud.set(newValue, forKey: key("asleepSince")) } }
+    private var prepSleepAt: Date? { get { ud.object(forKey: key("prepSleep")) as? Date } set { ud.set(newValue, forKey: key("prepSleep")) } }
+    func noteActive(source: String) {
+        let wasAsleep = asleepSince
+        lastActiveAt = Date()
+        if let since = wasAsleep {
+            asleepSince = nil; prepSleepAt = nil
+            let mins = Int(Date().timeIntervalSince(since) / 60)
+            if mins >= 60, let snap = Brain.shared.snapshot(forName: ""), cfg(for: snap).enabled, cfg(for: snap).sleep, HealthBridge.shared.sleepMin < 0 { // 有健康 App 的睡眠就不重复
+                enqueue(name: "woke_up", detail: "估计睡了 \(mins / 60) 小时 \(mins % 60) 分(按手机没动推断)", cfg: cfg(for: snap))
+            }
+        }
+        // 用户一活跃,所有追问计数清零(回了就不追)
+        for k in ["nightowl", "inactive", "bat15", "bat5"] { ud.set(0, forKey: key("fu." + k)) } // 注意:saidsleep 不在此清零——"说了去睡还在动"恰恰以活跃为条件
+    }
+    private func sleepInference(_ c: Cfg) -> [(String, String, Double)] {
+        var out: [(String, String, Double)] = []
+        guard c.sleep else { return out }
+        let idle = Date().timeIntervalSince(lastActiveAt)
+        let h = Calendar.current.component(.hour, from: Date())
+        if asleepSince == nil, (prepSleepAt != nil || (h >= 0 && h < 6)), idle >= 2.5 * 3600, lastActiveAt != .distantPast {
+            asleepSince = lastActiveAt // 从最后一次活跃算起
+            AppStore.shared.append("感知:推断 ta 睡了(手机 \(Int(idle / 60)) 分钟没动)")
+        }
+        // 夜猫子:凌晨 1~5 点还在活跃(最近 10 分钟内有活跃)且没被判睡 → night_owl(可追问,见 followUp)
+        if h >= 0 && h < 5, idle < 600, asleepSince == nil, followUpOK("nightowl", within: 3 * 3600, cfg: c) { out.append(("night_owl", "凌晨 \(h) 点还在用手机", 3)) }
+        // 说了去睡却还在动:user 最近一条说"去睡/晚安"(之后没再发消息),20 分钟后手机仍在活跃 → said_sleep_but_awake(可追问)
+        if let snap = Brain.shared.snapshot(forName: ""), snap.saidSleepAt > 0 {
+            let since = Date().timeIntervalSince1970 - snap.saidSleepAt / 1000
+            if since >= 20 * 60, since <= 4 * 3600, idle < 600, asleepSince == nil, followUpOK("saidsleep", within: 4 * 3600, cfg: c) { out.append(("said_sleep_but_awake", "说了去睡,\(Int(since / 60)) 分钟了还在用手机", 4)) }
+        }
+        return out
+    }
+    // 追问:同一类事在冷却期内最多说 followUps 次,每次间隔 ≥30 分钟;用户一活跃就清零
+    private func followUpOK(_ k: String, within: Double, cfg: Cfg) -> Bool {
+        let n = ud.integer(forKey: key("fu." + k))
+        let last = firedAt(k) ?? .distantPast
+        let sinceLast = Date().timeIntervalSince(last)
+        if n == 0 { markFired(k); ud.set(1, forKey: key("fu." + k)); return true }
+        if n < cfg.followUps, sinceLast >= 1800, sinceLast <= within { markFired(k); ud.set(n + 1, forKey: key("fu." + k)); return true }
+        if sinceLast > within { ud.set(0, forKey: key("fu." + k)) }
+        return false
+    }
+
     // MARK: 检测
     func tick() {
         guard let snap = Brain.shared.snapshot(forName: "") else { return }
@@ -59,12 +109,12 @@ final class Sense {
         if c.battery {
             let dev = UIDevice.current; let pct = dev.batteryLevel < 0 ? -1 : Int((dev.batteryLevel * 100).rounded())
             let charging = dev.batteryState == .charging || dev.batteryState == .full
-            if pct >= 0 && !charging && pct <= 5 && cooled("bat5", hours: 6) { evs.append(("battery_low", "\(pct)%", 6)); markFired("bat5") }
-            else if pct >= 0 && !charging && pct <= 15 && cooled("bat15", hours: 6) { evs.append(("battery_low", "\(pct)%", 6)); markFired("bat15") }
+            if pct >= 0 && !charging && pct <= 5 && followUpOK("bat5", within: 6 * 3600, cfg: c) { evs.append(("battery_low", "\(pct)%", 6)) }
+            else if pct >= 0 && !charging && pct <= 15 && followUpOK("bat15", within: 6 * 3600, cfg: c) { evs.append(("battery_low", "\(pct)%", 6)) }
             if charging, dev.batteryState == .charging, cooled("charging", hours: 3) { evs.append(("battery_charging", "\(pct)%", 3)); markFired("charging") }
             if dev.batteryState == .full, cooled("full", hours: 6) { evs.append(("battery_full", "100%", 6)); markFired("full") }
             if !charging { ud.removeObject(forKey: key("at.charging")) } // 拔了就允许下次插上再说
-            if pct > 30 { ud.removeObject(forKey: key("at.bat15")); ud.removeObject(forKey: key("at.bat5")) } // 充回去后下次低电再说
+            if pct > 30 { ud.removeObject(forKey: key("at.bat15")); ud.removeObject(forKey: key("at.bat5")); ud.set(0, forKey: key("fu.bat15")); ud.set(0, forKey: key("fu.bat5")) } // 充回去后下次低电再说
         }
         // 睡眠(醒了 / 睡太少)
         if c.sleep {
@@ -86,10 +136,13 @@ final class Sense {
         }
         // 日历:明天有安排(20-22点提一次)/ 1 小时内开始 / 刚结束
         if c.calendar { evs.append(contentsOf: calendarEvents()) }
+        // 睡眠推断(无手表)
+        if LiveLink.shared.recentlyPolled(within: 90) { noteActive(source: "yuyuanji") }
+        if asleepSince == nil { evs.append(contentsOf: sleepInference(c)) }
         // 好久没理
         if c.inactive, snap.lastUserAt > 0 {
             let gapH = (Date().timeIntervalSince1970 * 1000 - snap.lastUserAt) / 3600000
-            if gapH >= c.inactiveHours && cooled("inactive", hours: max(6, c.inactiveHours)) { evs.append(("no_reply_hours", String(format: "%.1f", gapH), 6)); markFired("inactive") }
+            if gapH >= c.inactiveHours && followUpOK("inactive", within: max(6, c.inactiveHours) * 3600, cfg: c) { evs.append(("no_reply_hours", String(format: "%.1f", gapH), 6)) }
         }
         for e in evs { enqueue(name: e.0, detail: e.1, cfg: c) }
     }
@@ -116,6 +169,23 @@ final class Sense {
 
     // 快捷指令报告的事件
     func external(name: String, detail: String) {
+        // 活跃/睡眠信号(不当成要开口的事件)
+        if name == "phone_active" { noteActive(source: "unlock"); return }
+        if name == "app_opened" {
+            noteActive(source: "app:" + detail)
+            ud.set(detail, forKey: key("lastApp")); ud.set(Date(), forKey: key("lastAppAt"))
+            // 说了去睡又打开某 App → 立刻提醒(比 said_sleep_but_awake 更具体)
+            if let snap = Brain.shared.snapshot(forName: ""), snap.saidSleepAt > 0 {
+                let since = Date().timeIntervalSince1970 - snap.saidSleepAt / 1000
+                if since >= 3 * 60, since <= 4 * 3600, cfg(for: snap).enabled, cfg(for: snap).sleep, followUpOK("saidsleepapp", within: 4 * 3600, cfg: cfg(for: snap)) {
+                    enqueue(name: "said_sleep_but_using_app", detail: "说了睡,又打开了\(detail.isEmpty ? "手机" : detail)", cfg: cfg(for: snap))
+                    return
+                }
+            }
+            return
+        }
+        if name == "sleep_focus_off" { prepSleepAt = nil; noteActive(source: "focus_off"); return }
+        if name == "sleep_focus_on" || name == "bedtime" { prepSleepAt = Date(); if let snap = Brain.shared.snapshot(forName: ""), cfg(for: snap).enabled, cfg(for: snap).sleep, cooled("bedtime", hours: 8) { markFired("bedtime"); enqueue(name: "bedtime_ready", detail: name == "bedtime" ? "到就寝时间了" : "开了睡眠专注", cfg: cfg(for: snap)) }; return }
         guard let snap = Brain.shared.snapshot(forName: "") else { AppStore.shared.append("感知:收到「\(name)」但还没同步角色快照"); return }
         let c = cfg(for: snap); guard c.enabled && c.external else { AppStore.shared.append("感知:收到「\(name)」但主动感知/快捷指令事件未开"); return }
         enqueue(name: name, detail: detail, cfg: c)
@@ -133,6 +203,7 @@ final class Sense {
     private func flush(cfg: Cfg) {
         let evs = pending; pending = []
         guard !evs.isEmpty else { return }
+        if asleepSince != nil, !evs.contains(where: { $0.name == "woke_up" }) { AppStore.shared.append("感知:ta 在睡觉,事件先记着"); Brain.shared.rememberEvents(evs.map { ($0.name, $0.detail, $0.at) }); return }
         let webOnline = LiveLink.shared.recentlyPolled(within: 60)
         // 免打扰:sleep_end 例外;其余攒着当上下文(不主动说),但仍给网页当上下文
         let quiet = inQuiet(cfg) && !evs.contains(where: { $0.name == "sleep_end" })
