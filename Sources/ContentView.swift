@@ -1,4 +1,5 @@
 import SwiftUI
+import EventKit
 
 // 主界面:顶部一个折叠的「使用说明」,下面各功能区不再堆注释
 struct ContentView: View {
@@ -17,6 +18,7 @@ struct ContentView: View {
                             Text("3. 回芋圆机：设置 → 手机联动，开总开关。同一台 iPhone 上 char 就能实时知道你电量、步数、睡眠，还能替你设提醒、闹钟、日历、备忘录。")
                             Text("4. 芋圆出餐台：酒馆关着时也能让 ta 发消息。和 ta 聊一句后这里会出现角色名。快捷指令 App → 新建 → 搜「芋圆机助手」→ 选「让当前角色给我发消息」→ 随便起名（如 芋圆机）→ 说「Siri，运行 芋圆机」；也可绑到「轻点背面」或操作按钮。换卡不用改。")
                             Text("5. 电量是系统给的 5% 一档近似值。备忘录需在快捷指令里建一条「创建备忘录」的指令并在芋圆机填名字。")
+                            Text("6. 主动感知：芋圆机里开「ta 会主动感知我的手机」后，没电/醒了/熬夜/没出门/明天有安排/好久没理 ta 这些事会自动推给角色，ta 按人设决定说不说。想让 ta 知道「打开了小红书 / 到家 / 出门 / 闹钟贪睡 / 开始运动」：快捷指令 App → 自动化 → 选触发条件（如「打开 App：小红书」）→ 添加操作搜「芋圆机助手」→「向角色报告一件事」→ 事件填 app_opened，备注填 小红书 → 关掉「运行前询问」。到家/出门用「到达/离开」触发，事件填 arrived_home / left_home；闹钟贪睡填 alarm_snoozed；运动填 workout_start / workout_end。")
                         }
                         .font(.footnote).foregroundColor(.secondary).padding(.vertical, 4)
                     } label: {
@@ -47,6 +49,11 @@ struct ContentView: View {
                             store.append(ok ? "通知权限：已允许" : "通知权限：被拒绝")
                         }
                     } label: { HStack { Text("通知"); Spacer(); Text(store.notifyGranted ? "✅" : "—") } }
+                    Button {
+                        let st = EKEventStore()
+                        if #available(iOS 17.0, *) { st.requestFullAccessToEvents { ok, _ in DispatchQueue.main.async { store.calendarGranted = ok; store.append(ok ? "日历权限(读写):已允许" : "日历权限:被拒绝") } } }
+                        else { st.requestAccess(to: .event) { ok, _ in DispatchQueue.main.async { store.calendarGranted = ok; store.append(ok ? "日历权限:已允许" : "日历权限:被拒绝") } } }
+                    } label: { HStack { Text("日历（读 + 写）"); Spacer(); Text(store.calendarGranted ? "✅" : "—") } }
                     Button {
                         HealthBridge.shared.requestAuth { ok, msg in store.healthGranted = ok; store.append(msg) }
                     } label: { HStack { Text("健康（步数 / 睡眠）"); Spacer(); Text(store.healthGranted ? "✅" : "—") } }
