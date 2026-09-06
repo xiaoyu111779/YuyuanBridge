@@ -18,6 +18,10 @@ final class Brain {
         var sysPrompt: String        // 芋圆机正常私聊回复时的【完整系统提示】(有它就直接用,和在线回复口径一致)
         var persona: String          // 精简线上人设
         var lore: String             // 剧情设定:为什么 ta 能看到/操作 user 的手机
+        var senseJSON: String        // 主动感知配置 JSON(开关/免打扰/上限/久未联系小时)
+        var sense: [String: Any]? { (try? JSONSerialization.jsonObject(with: Data(senseJSON.utf8))) as? [String: Any] }
+        var lastUserAt: Double       // user 最后一条微信的毫秒时间戳
+        var useStoryTime: Bool
         var shortcutName: String     // user 自建的写备忘录快捷指令名(空=没开备忘录能力)
         var memoOkAfter: Double      // 毫秒时间戳:此时间之后才允许主动留纸条(频率门控)
         var recent: [Msg]            // 最近对话(旧→新)
@@ -59,7 +63,7 @@ final class Brain {
             return Snapshot.Msg(role: r, text: t, time: m["time"] as? Double)
         }
         let snap = Snapshot(cardKey: cardKey, charName: charName, userName: (obj["userName"] as? String) ?? "我",
-                            sysPrompt: (obj["sysPrompt"] as? String) ?? "", persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", shortcutName: (obj["shortcutName"] as? String) ?? "", memoOkAfter: (obj["memoOkAfter"] as? Double) ?? 0, recent: Array(recent.suffix(30)),
+                            sysPrompt: (obj["sysPrompt"] as? String) ?? "", persona: (obj["persona"] as? String) ?? "", lore: (obj["lore"] as? String) ?? "", senseJSON: (obj["sense"]).flatMap { try? JSONSerialization.data(withJSONObject: $0) }.flatMap { String(data: $0, encoding: .utf8) } ?? "", lastUserAt: (obj["lastUserAt"] as? Double) ?? 0, useStoryTime: (obj["useStoryTime"] as? Bool) ?? false, shortcutName: (obj["shortcutName"] as? String) ?? "", memoOkAfter: (obj["memoOkAfter"] as? Double) ?? 0, recent: Array(recent.suffix(30)),
                             story: (obj["story"] as? String) ?? "", storyTime: (obj["storyTime"] as? String) ?? "",
                             apiUrl: (obj["apiUrl"] as? String) ?? "", apiModel: (obj["apiModel"] as? String) ?? "",
                             updatedAt: Date().timeIntervalSince1970)
@@ -76,6 +80,12 @@ final class Brain {
         if let last = UserDefaults.standard.string(forKey: "brain.lastCard"), let s = snapshots[last] { return s }
         return snapshots.values.sorted { $0.updatedAt > $1.updatedAt }.first
     }
+
+    func persistPublic() { persist() }
+    func enqueueOutgoing(_ o: Outgoing) { outbox.append(o); persist() }
+    // 最近感知事件(6h 内)——出餐台生成时作为上下文,让 ta 记得「刚才手机上发生过什么」
+    private(set) var recentEvents: [(name: String, detail: String, at: Date)] = []
+    func rememberEvents(_ evs: [(String, String, Date)]) { var all = recentEvents; for e in evs { all.append((name: e.0, detail: e.1, at: e.2)) }; recentEvents = Array(all.filter { Date().timeIntervalSince($0.at) < 6 * 3600 }.suffix(10)) }
 
     // MARK: 发件箱
     private(set) var outbox: [Outgoing] = []
@@ -134,6 +144,14 @@ final class Brain {
             liveStatus += "【数据铁律】上面没给的数据(比如没写电量/步数)就是【你现在看不到】,【绝对不要】自己编数字;别说\"剩 15%\"这种没有依据的话。\n"
         }
         // v17:未回复感知——user 最后一条之后,你已经连发了几条离线消息、最近一条多久前
+        var eventsBlock = ""
+        do {
+            let recent = recentEvents.filter { Date().timeIntervalSince($0.at) < 6 * 3600 }
+            if !recent.isEmpty {
+                let f = DateFormatter(); f.dateFormat = "HH:mm"
+                eventsBlock = "【最近 \(snap.userName) 手机上发生的事(可自然提及,别念报表)】" + recent.map { "\($0.name)\($0.detail.isEmpty ? "" : "=\($0.detail)")(\(f.string(from: $0.at)))" }.joined(separator: "；") + (snap.useStoryTime ? "。注意剧情时间开着:身体/设备状态可直接关心;涉及\"多久没联系\"按剧情间隔说;带钟点的按剧情情境自己圆。" : "。") + "\n"
+            }
+        }
         var unansweredBlock = ""
         do {
             let lastUserTs = snap.recent.filter { $0.role == "me" || $0.role == "user" }.last?.time ?? 0   // 毫秒
@@ -146,7 +164,7 @@ final class Brain {
         }
         let memoAllowed = !snap.shortcutName.isEmpty && Date().timeIntervalSince1970 * 1000 > snap.memoOkAfter
         let offlineRule = """
-\(liveStatus)\(unansweredBlock)【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
+\(liveStatus)\(eventsBlock)\(unansweredBlock)【离线补充·最高优先】\(snap.userName) 现在【不在酒馆里】,你是【主动新发】1~3 条很短的微信(每条 1~2 句),不是回复 ta;绝不重复聊天记录里说过的话;不写思路/方案/分析/旁白/元话术。
 【输出】只输出一个 JSON 对象:{"texts":["第一条","第二条"]},texts 里每个元素是一条消息正文;不要 markdown、不要解释。\(memoAllowed ? "可选:若剧情里正好有值得留一句的时刻(叮嘱/没说出口的话/替 ta 记小心愿/约定/纪念),可以再加一个字段 \"memo\":{\"title\":\"短标题\",\"text\":\"3~6 句\"}——这是写进 \(snap.userName) 真实手机备忘录、ta 一定会看到的纸条,第二人称直接对 ta 说,不写内心独白;必须用你自己人设的说话方式,内容只来自你们的剧情和最近聊天、不编;绝大多数时候【不要】加这个字段。" : "")
 """
         let sys: String
@@ -194,6 +212,7 @@ final class Brain {
                 AppStore.shared.append("\(snap.charName) 留了一张纸条(打开芋圆机后点灰字写入备忘录)")
             }
             let lines = Self.parseLines(content)
+            if lines.isEmpty, content.contains("\"texts\"") { AppStore.shared.append("\(snap.charName) 决定不说话(沉默)"); DispatchQueue.main.async { done(true, []) }; return } // 沉默权:{"texts":[]}
             guard !lines.isEmpty else { AppStore.shared.append("芋圆出餐台:模型没说出话来(原文:" + String(content.prefix(60)) + ")"); DispatchQueue.main.async { done(false, ["模型没返回内容"]) }; return }
             let now = Date().timeIntervalSince1970
             for (i, t) in lines.enumerated() {
