@@ -15,6 +15,7 @@ struct YuyuanBridgeApp: App {
         // 上次开着实时联动就自动恢复(用户划掉 App 再打开也能接上)
         LiveLink.shared.restoreIfNeeded()
         YuyuanShortcuts.updateAppShortcutParameters()   // 让 Siri 认识当前已同步的角色名
+        Sense.shared.start()                              // v25:主动感知
     }
 
     var body: some Scene {
@@ -59,6 +60,7 @@ final class AppStore: ObservableObject {
     @Published var notifyGranted: Bool = false
     @Published var alarmGranted: Bool = false
     @Published var healthGranted: Bool = false
+    @Published var calendarGranted: Bool = false
 
     func append(_ line: String) {
         DispatchQueue.main.async {
