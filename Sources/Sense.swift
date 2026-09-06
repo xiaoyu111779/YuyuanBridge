@@ -12,6 +12,9 @@ final class Sense {
     private let ud = UserDefaults.standard
     private var pending: [(name: String, detail: String, at: Date)] = []
     private var flushWork: DispatchWorkItem? = nil
+    private var retryQueue: [(name: String, detail: String, at: Date)] = []
+    private var retryWork: DispatchWorkItem? = nil
+    private func scheduleRetry() { retryWork?.cancel(); let w = DispatchWorkItem { [weak self] in guard let self = self, let snap = Brain.shared.snapshot(forName: "") else { return }; let evs = self.retryQueue; self.retryQueue = []; guard !evs.isEmpty else { return }; self.pending.append(contentsOf: evs); self.flush(cfg: self.cfg(for: snap)) }; retryWork = w; DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: w) }
     private let ekStore = EKEventStore()
 
     // MARK: 配置(从芋圆机快照来)
@@ -28,6 +31,7 @@ final class Sense {
     }
 
     func start() {
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in guard let self = self, !self.retryQueue.isEmpty, let snap = Brain.shared.snapshot(forName: "") else { return }; let evs = self.retryQueue; self.retryQueue = []; self.pending.append(contentsOf: evs); self.flush(cfg: self.cfg(for: snap)) }
         if timer != nil { return }
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(timer!, forMode: .common)
@@ -192,13 +196,16 @@ final class Sense {
     }
 
     // MARK: 合并 + 投递
+    // 这些事件要立刻反应,不等合并
+    private let instantEvents: Set<String> = ["app_opened", "said_sleep_but_using_app", "said_sleep_but_awake", "late_night_still_awake", "arrived_home", "left_home", "alarm_snoozed", "workout_start", "workout_end", "app_lock_hit"]
     private func enqueue(name: String, detail: String, cfg: Cfg) {
         AppStore.shared.append("感知事件:\(name) \(detail)")
         pending.append((name, detail, Date()))
         flushWork?.cancel()
         let w = DispatchWorkItem { [weak self] in self?.flush(cfg: cfg) }
         flushWork = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + 90, execute: w) // 90s 内的事件合成一次
+        let delay: TimeInterval = instantEvents.contains(name) ? 3 : 90   // 即时事件 3s(留一点点合并),其余 90s
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: w)
     }
     private func flush(cfg: Cfg) {
         let evs = pending; pending = []
@@ -218,8 +225,9 @@ final class Sense {
         if quiet || capped { AppStore.shared.append("感知:\(quiet ? "免打扰时段" : "今日上限已到"),事件先记着不主动说"); Brain.shared.rememberEvents(evs.map { ($0.name, $0.detail, $0.at) }); return }
         Brain.shared.rememberEvents(evs.map { ($0.name, $0.detail, $0.at) })
         let lines = evs.map { "- \($0.name)\($0.detail.isEmpty ? "" : " = \($0.detail)")" }.joined(separator: "\n")
-        Brain.shared.generate(charName: nil, trigger: "【刚发生的事·来自 ta 真实手机的感知】\n\(lines)\n这不是 ta 在找你,是你察觉到了这些。按你的人设和你们当前的关系决定要不要开口:不值得说就输出 {\"texts\":[]} 保持沉默;想说就像平时发微信,一两句,别念数据") { ok, lines in
-            if ok, !lines.isEmpty { self.bumpSent() }
+        Brain.shared.generate(charName: nil, trigger: "【刚发生的事·来自 ta 真实手机的感知】\n\(lines)\n这不是 ta 在找你,是你察觉到了这些。按你的人设和你们当前的关系决定要不要开口:不值得说就输出 {\"texts\":[]} 保持沉默;想说就像平时发微信,一两句,别念数据") { ok, out in
+            if ok, !out.isEmpty { self.bumpSent() }
+            else if !ok { AppStore.shared.append("感知:这次没发成(多半没联网),事件留着待会儿重试"); self.retryQueue.append(contentsOf: evs); self.scheduleRetry() }
         }
     }
 }
