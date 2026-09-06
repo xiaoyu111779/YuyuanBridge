@@ -12,6 +12,8 @@ final class LiveLink: ObservableObject {
 
     @Published var running = false
     @Published var lastServed: String = ""
+    private var lastStatusAt: Date? = nil
+    func recentlyPolled(within sec: Double) -> Bool { guard let t = lastStatusAt else { return false }; return Date().timeIntervalSince(t) < sec }
 
     private var player: AVAudioPlayer?
     private var listener: NWListener?
@@ -131,7 +133,7 @@ final class LiveLink: ObservableObject {
         }()
         var status = "200 OK"; var out = ""
         if method == "OPTIONS" { status = "204 No Content" }
-        else if path.hasPrefix("/status") || path.hasPrefix("/ping") { out = self.statusJSON() }
+        else if path.hasPrefix("/status") || path.hasPrefix("/ping") { out = self.statusJSON(); DispatchQueue.main.async { self.lastStatusAt = Date() } }
         else if path.hasPrefix("/action") {
             // 静默执行动作:GET /action?b64=<和 yuyuanji://action?b64= 完全同格式>
             if let b64 = q["b64"], let u = URL(string: "yuyuanji://action?b64=" + b64) {
@@ -144,6 +146,36 @@ final class LiveLink: ObservableObject {
             let b64 = String(data: body, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? (q["b64"] ?? "")
             let ok = Brain.shared.saveSnapshot(b64: b64)
             out = ok ? "{\"ok\":true}" : "{\"ok\":false,\"error\":\"bad snapshot\"}"
+        }
+        else if path.hasPrefix("/backup") {
+            // v24:芋圆机存档备份——POST body=base64url(JSON) 存到 Documents/backups/<card>/<ts>.json(每卡留 5 份);GET ?card= 取最近一份
+            let fm = FileManager.default
+            let root = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("backups", isDirectory: true)
+            if method == "POST" {
+                let b64 = String(data: body, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                var s2 = b64.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/"); while s2.count % 4 != 0 { s2 += "=" }
+                if let raw = Data(base64Encoded: s2), let obj = try? JSONSerialization.jsonObject(with: raw) as? [String: Any], let card = obj["cardKey"] as? String, !card.isEmpty {
+                    let safe = card.replacingOccurrences(of: "[^A-Za-z0-9_\\-\\.]", with: "_", options: .regularExpression)
+                    let dir = root.appendingPathComponent(safe, isDirectory: true); try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+                    let f = dir.appendingPathComponent("\(Int(Date().timeIntervalSince1970)).json")
+                    do {
+                        try raw.write(to: f, options: [.atomic, .completeFileProtection])
+                        let files = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+                        for old in files.dropFirst(5) { try? fm.removeItem(at: old) }
+                        AppStore.shared.append("已收到芋圆机备份:\((obj["charName"] as? String) ?? card)(\(raw.count / 1024) KB)")
+                        out = "{\"ok\":true}"
+                    } catch { out = "{\"ok\":false,\"error\":\"write failed\"}" }
+                } else { out = "{\"ok\":false,\"error\":\"bad backup\"}" }
+            } else {
+                let card = q["card"] ?? ""
+                let safe = card.replacingOccurrences(of: "[^A-Za-z0-9_\\-\\.]", with: "_", options: .regularExpression)
+                let dir = root.appendingPathComponent(safe, isDirectory: true)
+                let files = ((try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent > $1.lastPathComponent }
+                if let latest = files.first, let raw = try? Data(contentsOf: latest) {
+                    let b64 = raw.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+                    out = "{\"ok\":true,\"b64\":\"\(b64)\",\"file\":\"\(latest.lastPathComponent)\"}"
+                } else { out = "{\"ok\":false,\"error\":\"no backup\"}" }
+            }
         }
         else if path.hasPrefix("/outbox/ack") {
             let ids = (q["ids"] ?? "").split(separator: ",").map(String.init)
