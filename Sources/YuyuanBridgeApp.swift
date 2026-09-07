@@ -16,6 +16,7 @@ struct YuyuanBridgeApp: App {
         LiveLink.shared.restoreIfNeeded()
         YuyuanShortcuts.updateAppShortcutParameters()   // 让 Siri 认识当前已同步的角色名
         Sense.shared.start()                              // v25:主动感知
+        LockBridge.shared.restore()                       // v29:真锁——上次锁到点没解(App 被杀)就补解;没到点就补定时器
     }
 
     var body: some Scene {
