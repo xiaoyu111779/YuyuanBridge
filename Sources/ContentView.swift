@@ -1,11 +1,14 @@
 import SwiftUI
 import EventKit
+import FamilyControls
 
 // 主界面:顶部一个折叠的「使用说明」,下面各功能区不再堆注释
 struct ContentView: View {
     @EnvironmentObject var store: AppStore
     @ObservedObject var live = LiveLink.shared
+    @ObservedObject var lock = LockBridge.shared
     @State private var showHelp = false
+    @State private var showPicker = false
 
     var body: some View {
         NavigationView {
@@ -60,6 +63,26 @@ struct ContentView: View {
                     Button {
                         AlarmBridge.requestAuth { ok, msg in store.alarmGranted = ok; store.append(msg) }
                     } label: { HStack { Text("闹钟（iOS 26+）"); Spacer(); Text(store.alarmGranted ? "✅" : "—") } }
+                }
+
+                // v29:真锁(屏幕使用时间)。需签名带 family-controls 权限;授权失败=签名没带,删掉 Entitlements 里那一行重编即可。
+                Section("真锁（屏幕使用时间）") {
+                    Button {
+                        LockBridge.shared.requestAuth { ok, msg in store.append(msg) }
+                    } label: { HStack { Text("授权屏幕使用时间"); Spacer(); Text(lock.authorized ? "✅" : "—") } }
+                    Button {
+                        showPicker = true
+                    } label: { HStack { Text("选要锁的 App / 网站"); Spacer(); Text(lock.hasSelection ? "\(lock.appCount) App · \(lock.categoryCount) 类 · \(lock.webCount) 站" : "未选").font(.footnote).foregroundColor(.secondary) } }
+                    .disabled(!lock.authorized)
+                    .familyActivityPicker(isPresented: $showPicker, selection: $lock.selection)
+                    .onChange(of: showPicker) { open in if !open { LockBridge.shared.saveSelection() } }
+                    if lock.isLocked, let u = lock.lockedUntil {
+                        Text("锁定中，到 " + Self.hm.string(from: u) + " 自动解锁").font(.footnote).foregroundColor(.orange)
+                    }
+                    Button("锁 1 分钟（测试）") { LockBridge.shared.lock(minutes: 1, reason: "测试", character: "测试") }
+                        .disabled(!lock.authorized || !lock.hasSelection)
+                    Button("现在解锁") { LockBridge.shared.unlock(reason: "手动") }
+                    Text("芋圆机 → 设置 → 手机联动 里打开「ta 可以真的锁我的 App」。ta 说「别看了/去睡」时，选定的 App 会立刻盖上系统挡板，到分钟数自动解。选择器里别选本 App 自己，不然解锁只能等到点。").font(.footnote).foregroundColor(.secondary)
                 }
 
                 Section("芋圆出餐台") {
@@ -121,6 +144,7 @@ struct ContentView: View {
         .navigationViewStyle(.stack)
     }
 
+    private static let hm: DateFormatter = { let f = DateFormatter(); f.dateFormat = "HH:mm"; return f }()
     private func enc(_ s: String) -> String {
         s.addingPercentEncoding(withAllowedCharacters: .urlQueryValueAllowed) ?? s
     }
