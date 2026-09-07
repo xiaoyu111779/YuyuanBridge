@@ -72,8 +72,10 @@ jobs:
           fi
           # ▲
           # ▼ 灵动岛扩展:先签 PlugIns 里的 appex 再签主 App(顺序不能反),并打印确认扩展打进去了
-          if [ -d "$APP_PATH/PlugIns" ]; then ls -la "$APP_PATH/PlugIns"; for ex in "$APP_PATH"/PlugIns/*.appex; do [ -d "$ex" ] && codesign --force --sign - --timestamp=none "$ex" || true; done; echo "✓ 扩展已签"; else echo "⚠ 没有 PlugIns(灵动岛扩展没打进来,看编译日志里 YuyuanBridgeWidget 是否编了)"; fi
-          codesign --force --sign - --timestamp=none "$APP_PATH" || true
+          # v29:ad-hoc 签名时把 Entitlements.plist 一起写进签名(family-controls/healthkit/app-groups);重签工具若沿用包里已有的权限就能带上——最终能不能进包仍由重签工具的描述文件决定
+          if [ -d "$APP_PATH/PlugIns" ]; then ls -la "$APP_PATH/PlugIns"; for ex in "$APP_PATH"/PlugIns/*.appex; do [ -d "$ex" ] && codesign --force --sign - --entitlements Widget/Entitlements.plist --timestamp=none "$ex" || true; done; echo "✓ 扩展已签"; else echo "⚠ 没有 PlugIns(灵动岛扩展没打进来,看编译日志里 YuyuanBridgeWidget 是否编了)"; fi
+          codesign --force --sign - --entitlements Sources/Entitlements.plist --timestamp=none "$APP_PATH" || true
+          echo "=== 主 App 签名里的权限 ==="; codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true
           rm -rf staging out
           mkdir -p staging/Payload out
           cp -R "$APP_PATH" staging/Payload/
