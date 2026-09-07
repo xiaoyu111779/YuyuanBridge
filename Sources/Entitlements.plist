@@ -6,6 +6,9 @@
 	<array>
 		<string>group.com.yuyuan.bridge</string>
 	</array>
+	<!-- v29:真锁(屏幕使用时间)。签名工具/描述文件不带这个权限时:装不上或授权报错→把下面这一行连同 <true/> 删掉重编,其它功能不受影响 -->
+	<key>com.apple.developer.family-controls</key>
+	<true/>
 	<key>com.apple.developer.healthkit</key>
 	<true/>
 	<key>com.apple.developer.healthkit.access</key>
