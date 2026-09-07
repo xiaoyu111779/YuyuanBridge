@@ -82,6 +82,7 @@ struct ContentView: View {
                     Button("锁 1 分钟（测试）") { LockBridge.shared.lock(minutes: 1, reason: "测试", character: "测试") }
                         .disabled(!lock.authorized || !lock.hasSelection)
                     Button("现在解锁") { LockBridge.shared.unlock(reason: "手动") }
+                    Button("检查签名带没带屏幕使用时间权限") { store.append(LockBridge.profileCheck()) }
                     Text("芋圆机 → 设置 → 手机联动 里打开「ta 可以真的锁我的 App」。ta 说「别看了/去睡」时，选定的 App 会立刻盖上系统挡板，到分钟数自动解。选择器里别选本 App 自己，不然解锁只能等到点。").font(.footnote).foregroundColor(.secondary)
                 }
 
