@@ -115,6 +115,22 @@ final class LockBridge: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + max(1, until.timeIntervalSinceNow), execute: w)
     }
 
+    // 自检:读签名后打进包里的 embedded.mobileprovision,看描述文件到底带没带 family-controls(签名工具会把没有的权限剥掉/或装不上)
+    static func profileCheck() -> String {
+        guard let path = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision"), let raw = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return "包里没有 embedded.mobileprovision(没经过正式签名?)" }
+        guard let s0 = raw.range(of: Data("<?xml".utf8)), let e0 = raw.range(of: Data("</plist>".utf8)) else { return "描述文件读不出 plist" }
+        let plistData = raw[s0.lowerBound..<e0.upperBound]
+        guard let obj = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any] else { return "描述文件 plist 解析失败" }
+        let ent = (obj["Entitlements"] as? [String: Any]) ?? [:]
+        let name = (obj["Name"] as? String) ?? "?"
+        let team = ((obj["TeamName"] as? String) ?? "?")
+        let fc = ent["com.apple.developer.family-controls"] != nil
+        let hk = ent["com.apple.developer.healthkit"] != nil
+        let ag = ent["com.apple.security.application-groups"] != nil
+        let keys = ent.keys.sorted().joined(separator: ", ")
+        return "描述文件「\(name)」团队「\(team)」 family-controls:\(fc ? "有✅" : "没有❌") healthkit:\(hk ? "有" : "无") app-groups:\(ag ? "有" : "无") | 全部权限键:\(keys)"
+    }
+
     private func notify(title: String, body: String) {
         let c = UNMutableNotificationContent(); c.title = title; c.body = body; c.sound = .default
         let req = UNNotificationRequest(identifier: "yc-lock-" + UUID().uuidString, content: c, trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false))
