@@ -22,6 +22,14 @@ final class ActionHandler {
 
         // 形式 3：base64 JSON → 拆成字段
         if host == "action", let b64 = q["b64"], let payload = Self.decodeB64JSON(b64) {
+            // v29:真锁(屏幕使用时间)——{type:"lock",minutes:N,title:原因,character} / {type:"unlock"}
+            let ty = payload["type"] ?? ""
+            if ty == "lock" {
+                let mins = Int(Double(payload["minutes"] ?? payload["message"] ?? "") ?? 30)
+                LockBridge.shared.lock(minutes: mins, reason: payload["title"] ?? "", character: payload["character"] ?? "")
+                return
+            }
+            if ty == "unlock" { LockBridge.shared.unlock(reason: "芋圆机要求"); return }
             dispatch(type: payload["type"] ?? "notify",
                      title: payload["title"] ?? "",
                      body: payload["message"] ?? payload["notes"] ?? "",
